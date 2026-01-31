@@ -66,15 +66,6 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tempSeconds, setTempSeconds] = useState(30);
   const [manualRefreshing, setManualRefreshing] = useState(false);
-  const [useJsonp, setUseJsonp] = useState(false);
-  const [apiBase, setApiBase] = useState('/api');
-  const [tempApiBase, setTempApiBase] = useState('/api');
-
-  const buildUrl = (path) => {
-    const base = (apiBase || '/api').replace(/\/$/, '');
-    const p = path.startsWith('/') ? path : `/${path}`;
-    return `${base}${p}`;
-  };
 
   useEffect(() => {
     try {
@@ -88,13 +79,6 @@ export default function HomePage() {
         setRefreshMs(savedMs);
         setTempSeconds(Math.round(savedMs / 1000));
       }
-      const savedApi = localStorage.getItem('apiBase');
-      if (savedApi && typeof savedApi === 'string') {
-        setApiBase(savedApi);
-        setTempApiBase(savedApi);
-      }
-      const savedJsonp = localStorage.getItem('useJsonp');
-      if (savedJsonp === 'true') setUseJsonp(true);
     } catch {}
   }, []);
 
@@ -109,139 +93,15 @@ export default function HomePage() {
     };
   }, [funds, refreshMs]);
 
-  const loadScript = (src, timeoutMs = 8000) => {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      let done = false;
-      const clear = () => {
-        if (s.parentNode) s.parentNode.removeChild(s);
-      };
-      const timer = setTimeout(() => {
-        if (done) return;
-        done = true;
-        clear();
-        reject(new Error('JSONP 加载超时'));
-      }, timeoutMs);
-      s.onload = () => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        clear();
-        resolve();
-      };
-      s.onerror = () => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        clear();
-        reject(new Error('JSONP 加载失败'));
-      };
-      document.head.appendChild(s);
-    });
-  };
-
-  const getFundGZByJsonp = async (c) => {
-    return new Promise(async (resolve, reject) => {
-      const prev = window.jsonpgz;
-      try {
-        window.jsonpgz = (json) => {
-          try {
-            const gszzlNum = Number(json.gszzl);
-            const data = {
-              code: json.fundcode,
-              name: json.name,
-              dwjz: json.dwjz,
-              gsz: json.gsz,
-              gztime: json.gztime,
-              gszzl: Number.isFinite(gszzlNum) ? gszzlNum : json.gszzl
-            };
-            resolve(data);
-          } catch (e) {
-            reject(e);
-          } finally {
-            window.jsonpgz = prev;
-          }
-        };
-        await loadScript(`https://fundgz.1234567.com.cn/js/${encodeURIComponent(c)}.js`);
-        // 如果脚本未触发回调
-        setTimeout(() => {
-          reject(new Error('估值 JSONP 未返回'));
-          window.jsonpgz = prev;
-        }, 0);
-      } catch (e) {
-        window.jsonpgz = prev;
-        reject(e);
-      }
-    });
-  };
-
-  const stripHtml = (s) => s.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-  const parseHoldingsHtml = (html) => {
-    const list = [];
-    const tableMatch = html.match(/<table[\s\S]*?<\/table>/i);
-    const table = tableMatch ? tableMatch[0] : html;
-    const rows = table.match(/<tr[\s\S]*?<\/tr>/gi) || [];
-    for (const r of rows) {
-      const cells = [...r.matchAll(/<td[\s\S]*?>([\s\S]*?)<\/td>/gi)].map((m) => stripHtml(m[1]));
-      if (!cells.length) continue;
-      const codeIdx = cells.findIndex((c) => /^\d{6}$/.test(c));
-      const weightIdx = cells.findIndex((c) => /\d+(?:\.\d+)?\s*%/.test(c));
-      const code = codeIdx >= 0 ? cells[codeIdx] : null;
-      const name = codeIdx >= 0 && codeIdx + 1 < cells.length ? cells[codeIdx + 1] : null;
-      const weight = weightIdx >= 0 ? cells[weightIdx].replace(/\s+/g, '') : null;
-      if (code && (name || name === '') && weight) {
-        list.push({ code, name, weight });
-      } else {
-        const anchorNameMatch = r.match(/<a[^>]*?>([^<]+)<\/a>/i);
-        const altName = anchorNameMatch ? stripHtml(anchorNameMatch[1]) : null;
-        const codeMatch = r.match(/(\d{6})/);
-        const weightMatch = r.match(/(\d+(?:\.\d+)?)\s*%/);
-        const fallbackCode = codeMatch ? codeMatch[1] : null;
-        const fallbackWeight = weightMatch ? `${weightMatch[1]}%` : null;
-        if ((code || fallbackCode) && (name || altName) && (weight || fallbackWeight)) {
-          list.push({ code: code || fallbackCode, name: name || altName, weight: weight || fallbackWeight });
-        }
-      }
-    }
-    return list.slice(0, 10);
-  };
-
-  const getHoldingsByJsonp = async (c) => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Eastmoney 返回形如 var apidata={content:'<table>...</table>'}
-        // 先清理可能残留的变量
-        delete window.apidata;
-        await loadScript(`https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${encodeURIComponent(c)}&topline=10&year=&month=&rt=${Date.now()}`);
-        const content = window.apidata?.content || '';
-        const m = content.match(/<table[\s\S]*<\/table>/i) || content.match(/content:\s*'([\s\S]*?)'/i);
-        const html = m ? (m[0].startsWith('<table') ? m[0] : m[1]) : content;
-        const list = parseHoldingsHtml(html || '');
-        resolve(list);
-      } catch (e) {
-        // 兜底：无法解析时返回空数组
-        resolve([]);
-      }
-    });
-  };
-
-  const fetchFundData = async (c) => {
-    if (useJsonp) {
-      const gz = await getFundGZByJsonp(c);
-      const holdings = await getHoldingsByJsonp(c);
-      return { ...gz, holdings };
-    }
-    const res = await fetch(buildUrl(`/fund?code=${encodeURIComponent(c)}`), { cache: 'no-store' });
-    if (!res.ok) throw new Error('网络错误');
-    return await res.json();
-  };
-
   const refreshAll = async (codes) => {
     try {
       const updated = await Promise.all(
-        codes.map((c) => fetchFundData(c))
+        codes.map(async (c) => {
+          const res = await fetch(`/api/fund?code=${encodeURIComponent(c)}`, { cache: 'no-store' });
+          if (!res.ok) throw new Error('网络错误');
+          const data = await res.json();
+          return data;
+        })
       );
       setFunds(updated);
       localStorage.setItem('funds', JSON.stringify(updated));
@@ -264,7 +124,9 @@ export default function HomePage() {
     }
     setLoading(true);
     try {
-      const data = await fetchFundData(clean);
+      const res = await fetch(`/api/fund?code=${encodeURIComponent(clean)}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('基金未找到或接口异常');
+      const data = await res.json();
       const next = [data, ...funds];
       setFunds(next);
       localStorage.setItem('funds', JSON.stringify(next));
@@ -299,10 +161,6 @@ export default function HomePage() {
     const ms = Math.max(5, Number(tempSeconds)) * 1000;
     setRefreshMs(ms);
     localStorage.setItem('refreshMs', String(ms));
-    const nextApi = (tempApiBase || '/api').trim();
-    setApiBase(nextApi);
-    localStorage.setItem('apiBase', nextApi);
-    localStorage.setItem('useJsonp', useJsonp ? 'true' : 'false');
     setSettingsOpen(false);
   };
 
@@ -439,48 +297,13 @@ export default function HomePage() {
 
       <div className="footer">数据源：基金估值与重仓来自东方财富公开接口，可能存在延迟</div>
       {settingsOpen && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="设置" onClick={() => setSettingsOpen(false)}>
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="刷新频率设置" onClick={() => setSettingsOpen(false)}>
           <div className="glass card modal" onClick={(e) => e.stopPropagation()}>
             <div className="title" style={{ marginBottom: 12 }}>
               <SettingsIcon width="20" height="20" />
-              <span>设置</span>
-              <span className="muted">数据源与刷新频率</span>
+              <span>刷新频率设置</span>
+              <span className="muted">选择预设或自定义秒数</span>
             </div>
-            <div className="title" style={{ marginBottom: 8 }}>
-              <span>数据源</span>
-              <span className="muted">跨域环境推荐 JSONP 直连</span>
-            </div>
-            <div className="chips" style={{ marginBottom: 12 }}>
-              {[
-                { key: 'api', label: '后端 API（推荐）', active: !useJsonp },
-                { key: 'jsonp', label: 'JSONP 直连', active: useJsonp }
-              ].map((opt) => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  className={`chip ${opt.active ? 'active' : ''}`}
-                  onClick={() => setUseJsonp(opt.key === 'jsonp')}
-                  aria-pressed={opt.active}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            {!useJsonp && (
-              <div className="form" style={{ marginBottom: 12 }}>
-                <label htmlFor="api-base" className="muted" style={{ position: 'absolute', left: -9999 }}>
-                  API 基础地址
-                </label>
-                <input
-                  id="api-base"
-                  className="input"
-                  type="text"
-                  value={tempApiBase}
-                  onChange={(e) => setTempApiBase(e.target.value)}
-                  placeholder="/api 或 https://你的域名/api"
-                />
-              </div>
-            )}
             <div className="chips" style={{ marginBottom: 12 }}>
               {[10, 30, 60, 120, 300].map((s) => (
                 <button
