@@ -6,6 +6,7 @@ import Announcement from "./components/Announcement";
 import zhifubaoImg from "./assets/zhifubao.jpg";
 import weixinImg from "./assets/weixin.jpg";
 import githubImg from "./assets/github.svg";
+import { supabase } from './lib/supabase';
 
 function PlusIcon(props) {
   return (
@@ -58,6 +59,44 @@ function SortIcon(props) {
   return (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
       <path d="M3 7h18M6 12h12M9 17h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function UserIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="2" />
+      <path d="M4 20c0-4 4-6 8-6s8 2 8 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function LogoutIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="16 17 21 12 16 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function LoginIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="10 17 15 12 10 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MailIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path d="M22 6l-10 7L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -1686,6 +1725,15 @@ export default function HomePage() {
   // 视图模式
   const [viewMode, setViewMode] = useState('card'); // card, list
 
+  // 用户认证状态
+  const [user, setUser] = useState(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [loginSuccess, setLoginSuccess] = useState('');
+
   // 反馈弹窗状态
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackNonce, setFeedbackNonce] = useState(0);
@@ -2172,6 +2220,91 @@ export default function HomePage() {
       }
     } catch { }
   }, []);
+
+  // 初始化认证状态监听
+  useEffect(() => {
+    // 获取当前 session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // 监听认证状态变化
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        setLoginModalOpen(false);
+        setLoginEmail('');
+        setLoginSuccess('');
+        setLoginError('');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 发送魔术链接邮件
+  const handleSendMagicLink = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginSuccess('');
+
+    // 简单的邮箱格式验证
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!loginEmail.trim()) {
+      setLoginError('请输入邮箱地址');
+      return;
+    }
+    if (!emailRegex.test(loginEmail.trim())) {
+      setLoginError('请输入有效的邮箱地址');
+      return;
+    }
+
+    setLoginLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: loginEmail.trim(),
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      });
+      if (error) throw error;
+      setLoginSuccess('验证邮件已发送，请查收邮箱并点击链接完成登录');
+    } catch (err) {
+      if (err.message?.includes('rate limit')) {
+        setLoginError('请求过于频繁，请稍后再试');
+      } else if (err.message?.includes('network')) {
+        setLoginError('网络错误，请检查网络连接');
+      } else {
+        setLoginError(err.message || '发送验证邮件失败，请稍后再试');
+      }
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // 登出
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUserMenuOpen(false);
+    } catch (err) {
+      console.error('登出失败', err);
+    }
+  };
+
+  // 关闭用户菜单（点击外部时）
+  const userMenuRef = useRef(null);
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setUserMenuOpen(false);
+      }
+    };
+    if (userMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [userMenuOpen]);
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -2994,6 +3127,89 @@ export default function HomePage() {
           >
             <SettingsIcon width="18" height="18" />
           </button>
+
+          {/* 临时隐藏用户菜单入口 */}
+          <div className="user-menu-container" ref={userMenuRef} hidden>
+            <button
+              className={`icon-button user-menu-trigger ${user ? 'logged-in' : ''}`}
+              aria-label={user ? '用户菜单' : '登录'}
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              title={user ? (user.email || '用户') : '用户菜单'}
+            >
+              {user ? (
+                <div className="user-avatar-small">
+                  {user.email?.charAt(0).toUpperCase() || 'U'}
+                </div>
+              ) : (
+                <UserIcon width="18" height="18" />
+              )}
+            </button>
+
+            <AnimatePresence>
+              {userMenuOpen && (
+                <motion.div
+                  className="user-menu-dropdown glass"
+                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  style={{ transformOrigin: 'top right' }}
+                >
+                  {user ? (
+                    <>
+                      <div className="user-menu-header">
+                        <div className="user-avatar-large">
+                          {user.email?.charAt(0).toUpperCase() || 'U'}
+                        </div>
+                        <div className="user-info">
+                          <span className="user-email">{user.email}</span>
+                          <span className="user-status">已登录</span>
+                        </div>
+                      </div>
+                      <div className="user-menu-divider" />
+                      <button
+                        className="user-menu-item"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          setSettingsOpen(true);
+                        }}
+                      >
+                        <SettingsIcon width="16" height="16" />
+                        <span>设置</span>
+                      </button>
+                      <button className="user-menu-item danger" onClick={handleLogout}>
+                        <LogoutIcon width="16" height="16" />
+                        <span>登出</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="user-menu-item"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          setLoginModalOpen(true);
+                        }}
+                      >
+                        <LoginIcon width="16" height="16" />
+                        <span>登录</span>
+                      </button>
+                      <button
+                        className="user-menu-item"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          setSettingsOpen(true);
+                        }}
+                      >
+                        <SettingsIcon width="16" height="16" />
+                        <span>设置</span>
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
@@ -4058,6 +4274,82 @@ export default function HomePage() {
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 24 }}>
               <button className="button" onClick={saveSettings} disabled={tempSeconds < 10}>保存并关闭</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 登录模态框 */}
+      {loginModalOpen && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="登录"
+          onClick={() => {
+            setLoginModalOpen(false);
+            setLoginError('');
+            setLoginSuccess('');
+            setLoginEmail('');
+          }}
+        >
+          <div className="glass card modal login-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="title" style={{ marginBottom: 16 }}>
+              <MailIcon width="20" height="20" />
+              <span>邮箱登录</span>
+              <span className="muted">使用邮箱验证登录</span>
+            </div>
+
+            <form onSubmit={handleSendMagicLink}>
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>
+                  输入您的邮箱地址，我们将发送一封验证邮件
+                </div>
+                <input
+                  className="input"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  disabled={loginLoading}
+                  autoFocus
+                />
+              </div>
+
+              {loginError && (
+                <div className="login-message error" style={{ marginBottom: 12 }}>
+                  <span>{loginError}</span>
+                </div>
+              )}
+
+              {loginSuccess && (
+                <div className="login-message success" style={{ marginBottom: 12 }}>
+                  <span>{loginSuccess}</span>
+                </div>
+              )}
+
+              <div className="row" style={{ justifyContent: 'flex-end', gap: 12 }}>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    setLoginModalOpen(false);
+                    setLoginError('');
+                    setLoginSuccess('');
+                    setLoginEmail('');
+                  }}
+                  disabled={loginLoading}
+                >
+                  取消
+                </button>
+                <button
+                  className="button"
+                  type="submit"
+                  disabled={loginLoading || loginSuccess}
+                >
+                  {loginLoading ? '发送中...' : loginSuccess ? '已发送' : '发送验证邮件'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
