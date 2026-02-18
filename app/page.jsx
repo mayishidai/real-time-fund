@@ -2517,8 +2517,8 @@ export default function HomePage() {
       let worker = ocrWorkerRef.current;
       if (!worker) {
         const cdnBases = [
-          'https://cdn.jsdmirror.com/npm',
-          'https://cdn.jsdelivr.net/npm'
+          'https://cdn.jsdelivr.net/npm',
+          'https://cdn.jsdmirror.com/npm'
         ];
         let lastErr = null;
         for (const base of cdnBases) {
