@@ -271,6 +271,7 @@ export function NumericInput({ value, onChange, step = 1, min = 0, placeholder }
     <div style={{ position: 'relative' }}>
       <input
         type="number"
+        inputMode="decimal"
         step="any"
         className="input no-zoom"
         value={value}

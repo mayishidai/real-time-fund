@@ -29,7 +29,7 @@ ChartJS.register(
   Filler
 );
 
-export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
+export default function FundTrendChart({ code, isExpanded, onToggleExpand, transactions = [] }) {
   const [range, setRange] = useState('1m');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -39,7 +39,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
   useEffect(() => {
     // If collapsed, don't fetch data unless we have no data yet
     if (!isExpanded && data.length > 0) return;
-    
+
     let active = true;
     setLoading(true);
     setError(null);
@@ -85,19 +85,40 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
 
   // Red for up, Green for down (CN market style)
   // Hardcoded hex values from globals.css for Chart.js
-  const upColor = '#f87171'; // --danger
+  const upColor = '#f87171'; // --danger，与折线图红色一致
   const downColor = '#34d399'; // --success
   const lineColor = change >= 0 ? upColor : downColor;
-  
+  const primaryColor = typeof document !== 'undefined' ? (getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#22d3ee') : '#22d3ee';
+
   const chartData = useMemo(() => {
     // Calculate percentage change based on the first data point
     const firstValue = data.length > 0 ? data[0].value : 1;
     const percentageData = data.map(d => ((d.value - firstValue) / firstValue) * 100);
 
+    // Map transaction dates to chart indices
+    const dateToIndex = new Map(data.map((d, i) => [d.date, i]));
+    const buyPoints = new Array(data.length).fill(null);
+    const sellPoints = new Array(data.length).fill(null);
+
+    transactions.forEach(t => {
+        // Simple date matching (assuming formats match)
+        // If formats differ, dayjs might be needed
+        const idx = dateToIndex.get(t.date);
+        if (idx !== undefined) {
+            const val = percentageData[idx];
+            if (t.type === 'buy') {
+                buyPoints[idx] = val;
+            } else {
+                sellPoints[idx] = val;
+            }
+        }
+    });
+
     return {
       labels: data.map(d => d.date),
       datasets: [
         {
+          type: 'line',
           label: '涨跌幅',
           data: percentageData,
           borderColor: lineColor,
@@ -112,11 +133,38 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
           pointRadius: 0,
           pointHoverRadius: 4,
           fill: true,
-          tension: 0.2
+          tension: 0.2,
+          order: 2
+        },
+        {
+          type: 'line', // Use line type with showLine: false to simulate scatter on Category scale
+          label: '买入',
+          data: buyPoints,
+          borderColor: '#ffffff',
+          borderWidth: 1,
+          backgroundColor: primaryColor,
+          pointStyle: 'circle',
+          pointRadius: 2.5,
+          pointHoverRadius: 4,
+          showLine: false,
+          order: 1
+        },
+        {
+          type: 'line',
+          label: '卖出',
+          data: sellPoints,
+          borderColor: '#ffffff',
+          borderWidth: 1,
+          backgroundColor: upColor,
+          pointStyle: 'circle',
+          pointRadius: 2.5,
+          pointHoverRadius: 4,
+          showLine: false,
+          order: 1
         }
       ]
     };
-  }, [data, lineColor]);
+  }, [data, lineColor, transactions, primaryColor]);
 
   const options = useMemo(() => {
     return {
@@ -178,21 +226,90 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
   const plugins = useMemo(() => [{
     id: 'crosshair',
     afterDraw: (chart) => {
-      // 检查是否有激活的点
-      let activePoint = null;
+      const ctx = chart.ctx;
+      const datasets = chart.data.datasets;
+      const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#22d3ee';
+
+      // 绘制圆角矩形（兼容无 roundRect 的环境）
+      const drawRoundRect = (left, top, w, h, r) => {
+        const rad = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(left + rad, top);
+        ctx.lineTo(left + w - rad, top);
+        ctx.quadraticCurveTo(left + w, top, left + w, top + rad);
+        ctx.lineTo(left + w, top + h - rad);
+        ctx.quadraticCurveTo(left + w, top + h, left + w - rad, top + h);
+        ctx.lineTo(left + rad, top + h);
+        ctx.quadraticCurveTo(left, top + h, left, top + h - rad);
+        ctx.lineTo(left, top + rad);
+        ctx.quadraticCurveTo(left, top, left + rad, top);
+        ctx.closePath();
+      };
+
+      const drawPointLabel = (datasetIndex, index, text, bgColor, textColor = '#ffffff', yOffset = 0) => {
+          const meta = chart.getDatasetMeta(datasetIndex);
+          if (!meta.data[index]) return;
+          const element = meta.data[index];
+          if (element.skip) return;
+
+          const x = element.x;
+          const y = element.y + yOffset;
+          const paddingH = 10;
+          const paddingV = 6;
+          const radius = 8;
+
+          ctx.save();
+          ctx.font = 'bold 11px sans-serif';
+          const textW = ctx.measureText(text).width;
+          const w = textW + paddingH * 2;
+          const h = 18;
+          const left = x - w / 2;
+          const top = y - 24;
+
+          drawRoundRect(left, top, w, h, radius);
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = bgColor;
+          ctx.fill();
+
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(text, x, top + h / 2);
+          ctx.restore();
+      };
+
+      // Resolve active elements (hover/focus) first — used to decide whether to show default labels
+      let activeElements = [];
       if (chart.tooltip?._active?.length) {
-        activePoint = chart.tooltip._active[0];
+        activeElements = chart.tooltip._active;
       } else {
-        // 如果 tooltip._active 为空（可能因为 enabled: false 导致内部状态更新机制差异），
-        // 尝试从 getActiveElements 获取，这在 Chart.js 3+ 中是推荐方式
-        const activeElements = chart.getActiveElements();
-        if (activeElements && activeElements.length) {
-          activePoint = activeElements[0];
-        }
+        activeElements = chart.getActiveElements();
       }
 
-      if (activePoint) {
-        const ctx = chart.ctx;
+      // 1. Draw default labels for first buy and sell points only when NOT focused/hovering
+      // Index 1 is Buy, Index 2 is Sell
+      if (!activeElements?.length && datasets[1] && datasets[1].data) {
+          const firstBuyIndex = datasets[1].data.findIndex(v => v !== null && v !== undefined);
+          if (firstBuyIndex !== -1) {
+              let sellIndex = -1;
+              if (datasets[2] && datasets[2].data) {
+                  sellIndex = datasets[2].data.findIndex(v => v !== null && v !== undefined);
+              }
+              const isCollision = (firstBuyIndex === sellIndex);
+              drawPointLabel(1, firstBuyIndex, '买入', primaryColor, '#ffffff', isCollision ? -20 : 0);
+          }
+      }
+      if (!activeElements?.length && datasets[2] && datasets[2].data) {
+          const firstSellIndex = datasets[2].data.findIndex(v => v !== null && v !== undefined);
+          if (firstSellIndex !== -1) {
+              drawPointLabel(2, firstSellIndex, '卖出', '#f87171');
+          }
+      }
+
+      // 2. Handle active elements (hover crosshair)
+      if (activeElements && activeElements.length) {
+        const activePoint = activeElements[0];
         const x = activePoint.element.x;
         const y = activePoint.element.y;
         const topY = chart.scales.y.top;
@@ -209,29 +326,23 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
         // Draw vertical line
         ctx.moveTo(x, topY);
         ctx.lineTo(x, bottomY);
-        
-        // Draw horizontal line
+
+        // Draw horizontal line (based on first point - usually the main line)
         ctx.moveTo(leftX, y);
         ctx.lineTo(rightX, y);
-        
-        ctx.stroke();
 
-        // 获取 --primary 颜色
-        const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#22d3ee';
+        ctx.stroke();
 
         // Draw labels
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        // 获取数据点
-        // 优先使用 chart.data 中的数据，避免闭包过时问题
-        // activePoint.index 是当前数据集中的索引
+        // Draw Axis Labels based on the first point (main line)
         const datasetIndex = activePoint.datasetIndex;
         const index = activePoint.index;
-        
+
         const labels = chart.data.labels;
-        const datasets = chart.data.datasets;
 
         if (labels && datasets && datasets[datasetIndex] && datasets[datasetIndex].data) {
            const dateStr = labels[index];
@@ -256,14 +367,39 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
            }
         }
 
+        // Check for collision between Buy (1) and Sell (2) in active elements
+        const activeBuy = activeElements.find(e => e.datasetIndex === 1);
+        const activeSell = activeElements.find(e => e.datasetIndex === 2);
+        const isCollision = activeBuy && activeSell && activeBuy.index === activeSell.index;
+
+        // Iterate through all active points to find transaction points and draw their labels
+        activeElements.forEach(element => {
+            const dsIndex = element.datasetIndex;
+            // Only for transaction datasets (index > 0)
+            if (dsIndex > 0 && datasets[dsIndex]) {
+                const label = datasets[dsIndex].label;
+                // Determine background color based on dataset index
+                // 1 = Buy (主题色), 2 = Sell (与折线图红色一致)
+                const bgColor = dsIndex === 1 ? primaryColor : '#f87171';
+
+                // If collision, offset Buy label upwards
+                let yOffset = 0;
+                if (isCollision && dsIndex === 1) {
+                    yOffset = -20;
+                }
+
+                drawPointLabel(dsIndex, element.index, label, bgColor, '#ffffff', yOffset);
+            }
+        });
+
         ctx.restore();
       }
     }
   }], []); // 移除 data 依赖，因为我们直接从 chart 实例读取数据
-  
+
   return (
     <div style={{ marginTop: 16 }} onClick={(e) => e.stopPropagation()}>
-      <div 
+      <div
         style={{ marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}
         className="title"
         onClick={onToggleExpand}
@@ -291,7 +427,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
           )}
         </div>
       </div>
-      
+
       <AnimatePresence>
         {isExpanded && (
           <motion.div
@@ -303,16 +439,16 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
           >
             <div style={{ position: 'relative', height: 180, width: '100%' }}>
               {loading && (
-                <div style={{ 
+                <div style={{
                   position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   background: 'rgba(255,255,255,0.02)', zIndex: 10, backdropFilter: 'blur(2px)'
                 }}>
                   <span className="muted" style={{ fontSize: '12px' }}>加载中...</span>
                 </div>
               )}
-              
+
               {!loading && data.length === 0 && (
-                 <div style={{ 
+                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   background: 'rgba(255,255,255,0.02)', zIndex: 10
                 }}>

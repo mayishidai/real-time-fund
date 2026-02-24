@@ -12,6 +12,7 @@ import timezone from 'dayjs/plugin/timezone';
 import Announcement from "./components/Announcement";
 import { Stat } from "./components/Common";
 import FundTrendChart from "./components/FundTrendChart";
+import FundIntradayChart from "./components/FundIntradayChart";
 import { ChevronIcon, CloseIcon, ExitIcon, EyeIcon, EyeOffIcon, GridIcon, ListIcon, LoginIcon, LogoutIcon, PinIcon, PinOffIcon, PlusIcon, RefreshIcon, SettingsIcon, SortIcon, StarIcon, TrashIcon, UpdateIcon, UserIcon, CameraIcon } from "./components/Icons";
 import AddFundToGroupModal from "./components/AddFundToGroupModal";
 import AddResultModal from "./components/AddResultModal";
@@ -31,9 +32,13 @@ import ScanProgressModal from "./components/ScanProgressModal";
 import SettingsModal from "./components/SettingsModal";
 import SuccessModal from "./components/SuccessModal";
 import TradeModal from "./components/TradeModal";
+import TransactionHistoryModal from "./components/TransactionHistoryModal";
+import AddHistoryModal from "./components/AddHistoryModal";
 import UpdatePromptModal from "./components/UpdatePromptModal";
 import WeChatModal from "./components/WeChatModal";
+import githubImg from "./assets/github.svg";
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { recordValuation, getAllValuationSeries, clearFund } from './lib/valuationTimeseries';
 import { fetchFundData, fetchLatestRelease, fetchShanghaiIndexDate, fetchSmartFundNetValue, searchFunds } from './api/fund';
 import packageJson from '../package.json';
 
@@ -275,8 +280,10 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const timerRef = useRef(null);
+  const refreshCycleStartRef = useRef(Date.now());
   const refreshingRef = useRef(false);
   const isLoggingOutRef = useRef(false);
+  const isExplicitLoginRef = useRef(false);
 
   // 刷新频率状态
   const [refreshMs, setRefreshMs] = useState(30000);
@@ -285,10 +292,15 @@ export default function HomePage() {
 
   // 全局刷新状态
   const [refreshing, setRefreshing] = useState(false);
+  // 刷新周期进度 0~1，用于环形进度条
+  const [refreshProgress, setRefreshProgress] = useState(0);
 
   // 收起/展开状态
   const [collapsedCodes, setCollapsedCodes] = useState(new Set());
   const [collapsedTrends, setCollapsedTrends] = useState(new Set()); // New state for collapsed trend charts
+
+  // 估值分时序列（每次调用估值接口记录，用于分时图）
+  const [valuationSeries, setValuationSeries] = useState(() => (typeof window !== 'undefined' ? getAllValuationSeries() : {}));
 
   // 自选状态
   const [favorites, setFavorites] = useState(new Set());
@@ -395,6 +407,9 @@ export default function HomePage() {
   const [donateOpen, setDonateOpen] = useState(false);
   const [holdings, setHoldings] = useState({}); // { [code]: { share: number, cost: number } }
   const [pendingTrades, setPendingTrades] = useState([]); // [{ id, fundCode, share, date, ... }]
+  const [transactions, setTransactions] = useState({}); // { [code]: [{ id, type, amount, share, price, date, timestamp }] }
+  const [historyModal, setHistoryModal] = useState({ open: false, fund: null });
+  const [addHistoryModal, setAddHistoryModal] = useState({ open: false, fund: null });
   const [percentModes, setPercentModes] = useState({}); // { [code]: boolean }
 
   const holdingsRef = useRef(holdings);
@@ -643,13 +658,18 @@ export default function HomePage() {
   };
 
   const handleAction = (type, fund) => {
-    setActionModal({ open: false, fund: null });
+    if (type !== 'history') {
+      setActionModal({ open: false, fund: null });
+    }
+    
     if (type === 'edit') {
       setHoldingModal({ open: true, fund });
     } else if (type === 'clear') {
       setClearConfirm({ fund });
     } else if (type === 'buy' || type === 'sell') {
       setTradeModal({ open: true, fund, type });
+    } else if (type === 'history') {
+      setHistoryModal({ open: true, fund });
     }
   };
 
@@ -667,6 +687,7 @@ export default function HomePage() {
     let stateChanged = false;
     let tempHoldings = { ...holdingsRef.current };
     const processedIds = new Set();
+    const newTransactions = [];
 
     for (const trade of currentPending) {
       let queryDate = trade.date;
@@ -682,21 +703,43 @@ export default function HomePage() {
         const current = tempHoldings[trade.fundCode] || { share: 0, cost: 0 };
 
         let newShare, newCost;
+        let tradeShare = 0;
+        let tradeAmount = 0;
+
         if (trade.type === 'buy') {
              const feeRate = trade.feeRate || 0;
              const netAmount = trade.amount / (1 + feeRate / 100);
              const share = netAmount / result.value;
              newShare = current.share + share;
              newCost = (current.cost * current.share + trade.amount) / newShare;
+             
+             tradeShare = share;
+             tradeAmount = trade.amount;
         } else {
              newShare = Math.max(0, current.share - trade.share);
              newCost = current.cost;
              if (newShare === 0) newCost = 0;
+             
+             tradeShare = trade.share;
+             tradeAmount = trade.share * result.value;
         }
 
         tempHoldings[trade.fundCode] = { share: newShare, cost: newCost };
         stateChanged = true;
         processedIds.add(trade.id);
+        
+        // 记录交易历史
+        newTransactions.push({
+            id: trade.id,
+            fundCode: trade.fundCode,
+            type: trade.type,
+            share: tradeShare,
+            amount: tradeAmount,
+            price: result.value,
+            date: result.date, // 使用获取到净值的日期
+            isAfter3pm: trade.isAfter3pm,
+            timestamp: Date.now()
+        });
       }
     }
 
@@ -710,8 +753,74 @@ export default function HomePage() {
           return next;
       });
 
+      setTransactions(prev => {
+          const nextState = { ...prev };
+          newTransactions.forEach(tx => {
+              const current = nextState[tx.fundCode] || [];
+              // 避免重复添加 (虽然 id 应该唯一)
+              if (!current.some(t => t.id === tx.id)) {
+                  nextState[tx.fundCode] = [tx, ...current].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+              }
+          });
+          storageHelper.setItem('transactions', JSON.stringify(nextState));
+          return nextState;
+      });
+
       showToast(`已处理 ${processedIds.size} 笔待定交易`, 'success');
     }
+  };
+
+  const handleDeleteTransaction = (fundCode, transactionId) => {
+    setTransactions(prev => {
+      const current = prev[fundCode] || [];
+      const next = current.filter(t => t.id !== transactionId);
+      const nextState = { ...prev, [fundCode]: next };
+      storageHelper.setItem('transactions', JSON.stringify(nextState));
+      return nextState;
+    });
+    showToast('交易记录已删除', 'success');
+  };
+
+  const handleAddHistory = (data) => {
+    const fundCode = data.fundCode;
+    const current = holdings[fundCode] || { share: 0, cost: 0 };
+    const isBuy = data.type === 'buy';
+
+    let newShare, newCost;
+
+    if (isBuy) {
+      newShare = current.share + data.share;
+      // 加权平均成本
+      const buyCost = data.amount; // amount is total cost
+      newCost = (current.cost * current.share + buyCost) / newShare;
+    } else {
+      newShare = Math.max(0, current.share - data.share);
+      newCost = current.cost;
+      if (newShare === 0) newCost = 0;
+    }
+
+    handleSaveHolding(fundCode, { share: newShare, cost: newCost });
+
+    setTransactions(prev => {
+      const current = prev[fundCode] || [];
+      const record = {
+        id: crypto.randomUUID(),
+        type: data.type,
+        share: data.share,
+        amount: data.amount,
+        price: data.price,
+        date: data.date,
+        isAfter3pm: false, // 历史记录通常不需要此标记，或者默认为 false
+        timestamp: data.timestamp || Date.now()
+      };
+      // 按时间倒序排列
+      const next = [record, ...current].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const nextState = { ...prev, [fundCode]: next };
+      storageHelper.setItem('transactions', JSON.stringify(nextState));
+      return nextState;
+    });
+    showToast('历史记录已添加', 'success');
+    setAddHistoryModal({ open: false, fund: null });
   };
 
   const handleTrade = (fund, data) => {
@@ -764,6 +873,25 @@ export default function HomePage() {
     }
 
     handleSaveHolding(fund.code, { share: newShare, cost: newCost });
+
+    setTransactions(prev => {
+      const current = prev[fund.code] || [];
+      const record = {
+        id: crypto.randomUUID(),
+        type: tradeModal.type,
+        share: data.share,
+        amount: isBuy ? data.totalCost : (data.share * data.price),
+        price: data.price,
+        date: data.date,
+        isAfter3pm: data.isAfter3pm,
+        timestamp: Date.now()
+      };
+      const next = [record, ...current];
+      const nextState = { ...prev, [fund.code]: next };
+      storageHelper.setItem('transactions', JSON.stringify(nextState));
+      return nextState;
+    });
+
     setTradeModal({ open: false, fund: null, type: 'buy' });
   };
 
@@ -861,9 +989,8 @@ export default function HomePage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleFilesUpload = async (event) => {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
+  const processFiles = async (files) => {
+    if (!files?.length) return;
 
     setIsScanning(true);
     setScanModalOpen(false); // 关闭选择弹窗
@@ -1006,6 +1133,14 @@ export default function HomePage() {
     }
   };
 
+  const handleFilesUpload = (event) => {
+    processFiles(Array.from(event.target.files || []));
+  };
+
+  const handleFilesDrop = (files) => {
+    processFiles(files);
+  };
+
   const toggleScannedCode = (code) => {
     setSelectedScannedCodes(prev => {
       const next = new Set(prev);
@@ -1052,6 +1187,13 @@ export default function HomePage() {
           storageHelper.setItem('funds', JSON.stringify(updated));
           return updated;
         });
+        const nextSeries = {};
+        newFunds.forEach(u => {
+          if (u?.code != null && !u.noValuation && Number.isFinite(Number(u.gsz))) {
+            nextSeries[u.code] = recordValuation(u.code, { gsz: u.gsz, gztime: u.gztime });
+          }
+        });
+        if (Object.keys(nextSeries).length > 0) setValuationSeries(prev => ({ ...prev, ...nextSeries }));
         setSuccessModal({ open: true, message: `成功导入 ${successCount} 个基金` });
       } else {
         if (codes.length > 0 && successCount === 0 && failedCount === 0) {
@@ -1137,7 +1279,8 @@ export default function HomePage() {
   }, []);
 
   const storageHelper = useMemo(() => {
-    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode']);
+    // 仅以下 key 参与云端同步；fundValuationTimeseries 不同步到云端（测试中功能，暂不同步）
+    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'transactions', 'viewMode']);
     const triggerSync = (key, prevValue, nextValue) => {
       if (keys.has(key)) {
         // 标记为脏数据
@@ -1183,6 +1326,7 @@ export default function HomePage() {
   }, [getFundCodesSignature, scheduleSync]);
 
   useEffect(() => {
+    // 仅以下 key 的变更会触发云端同步；fundValuationTimeseries 不在其中
     const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode']);
     const onStorage = (e) => {
       if (!e.key) return;
@@ -1362,6 +1506,8 @@ export default function HomePage() {
       if (Array.isArray(savedTrends)) {
         setCollapsedTrends(new Set(savedTrends));
       }
+      // 加载估值分时记录（用于分时图）
+      setValuationSeries(getAllValuationSeries());
       // 加载自选状态
       const savedFavorites = JSON.parse(localStorage.getItem('favorites') || '[]');
       if (Array.isArray(savedFavorites)) {
@@ -1382,6 +1528,10 @@ export default function HomePage() {
       if (savedHoldings && typeof savedHoldings === 'object') {
         setHoldings(savedHoldings);
       }
+      const savedTransactions = JSON.parse(localStorage.getItem('transactions') || '{}');
+      if (savedTransactions && typeof savedTransactions === 'object') {
+        setTransactions(savedTransactions);
+      }
       const savedViewMode = localStorage.getItem('viewMode');
       if (savedViewMode === 'card' || savedViewMode === 'list') {
         setViewMode(savedViewMode);
@@ -1401,7 +1551,7 @@ export default function HomePage() {
       setUserMenuOpen(false);
     };
 
-    const handleSession = async (session, event) => {
+    const handleSession = async (session, event, isExplicitLogin = false) => {
       if (!session?.user) {
         if (event === 'SIGNED_OUT' && !isLoggingOutRef.current) {
           setLoginError('会话已过期，请重新登录');
@@ -1443,7 +1593,8 @@ export default function HomePage() {
         setLoginSuccess('');
         setLoginError('');
       }
-      fetchCloudConfig(session.user.id);
+      // 仅在明确的登录动作（SIGNED_IN）时检查冲突；INITIAL_SESSION（刷新页面等）不检查，直接以云端为准
+      fetchCloudConfig(session.user.id, isExplicitLogin);
     };
 
     supabase.auth.getSession().then(async ({ data, error }) => {
@@ -1457,7 +1608,11 @@ export default function HomePage() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       // INITIAL_SESSION 会由 getSession() 主动触发，这里不再重复处理
       if (event === 'INITIAL_SESSION') return;
-      await handleSession(session ?? null, event);
+      const isExplicitLogin = event === 'SIGNED_IN' && isExplicitLoginRef.current;
+      await handleSession(session ?? null, event, isExplicitLogin);
+      if (event === 'SIGNED_IN') {
+        isExplicitLoginRef.current = false;
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -1540,6 +1695,7 @@ export default function HomePage() {
       return;
     }
     try {
+      isExplicitLoginRef.current = true;
       setLoginLoading(true);
       const { data, error } = await supabase.auth.verifyOtp({
         email: loginEmail.trim(),
@@ -1553,10 +1709,10 @@ export default function HomePage() {
         setLoginOtp('');
         setLoginSuccess('');
         setLoginError('');
-        fetchCloudConfig(data.user.id);
       }
     } catch (err) {
       setLoginError(err.message || '验证失败，请检查验证码或稍后再试');
+      isExplicitLoginRef.current = false;
     }
     setLoginLoading(false);
   };
@@ -1630,6 +1786,7 @@ export default function HomePage() {
   }, [userMenuOpen]);
 
   useEffect(() => {
+    refreshCycleStartRef.current = Date.now();
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       const codes = Array.from(new Set(funds.map((f) => f.code)));
@@ -1639,6 +1796,17 @@ export default function HomePage() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [funds, refreshMs]);
+
+  // 刷新进度条：每 100ms 更新一次进度
+  useEffect(() => {
+    if (funds.length === 0 || refreshMs <= 0) return;
+    const t = setInterval(() => {
+      const elapsed = Date.now() - refreshCycleStartRef.current;
+      const p = Math.min(1, elapsed / refreshMs);
+      setRefreshProgress(p);
+    }, 100);
+    return () => clearInterval(t);
+  }, [funds.length, refreshMs]);
 
   const performSearch = async (val) => {
     if (!val.trim()) {
@@ -1701,6 +1869,13 @@ export default function HomePage() {
           storageHelper.setItem('funds', JSON.stringify(deduped));
           return deduped;
         });
+        const nextSeries = {};
+        added.forEach(u => {
+          if (u?.code != null && !u.noValuation && Number.isFinite(Number(u.gsz))) {
+            nextSeries[u.code] = recordValuation(u.code, { gsz: u.gsz, gztime: u.gztime });
+          }
+        });
+        if (Object.keys(nextSeries).length > 0) setValuationSeries(prev => ({ ...prev, ...nextSeries }));
         setSuccessModal({ open: true, message: `已导入 ${added.length} 只基金` });
       } else {
         setSuccessModal({ open: true, message: '未能导入任何基金，请检查截图清晰度' });
@@ -1731,6 +1906,13 @@ export default function HomePage() {
         const updated = dedupeByCode([...newFunds, ...funds]);
         setFunds(updated);
         storageHelper.setItem('funds', JSON.stringify(updated));
+        const nextSeries = {};
+        newFunds.forEach(u => {
+          if (u?.code != null && !u.noValuation && Number.isFinite(Number(u.gsz))) {
+            nextSeries[u.code] = recordValuation(u.code, { gsz: u.gsz, gztime: u.gztime });
+          }
+        });
+        if (Object.keys(nextSeries).length > 0) setValuationSeries(prev => ({ ...prev, ...nextSeries }));
       }
 
       setSelectedFunds([]);
@@ -1781,12 +1963,24 @@ export default function HomePage() {
           storageHelper.setItem('funds', JSON.stringify(deduped));
           return deduped;
         });
+        // 记录估值分时：每次刷新写入一条，新日期到来时自动清掉老日期数据
+        const nextSeries = {};
+        updated.forEach(u => {
+          if (u?.code != null && !u.noValuation && Number.isFinite(Number(u.gsz))) {
+            const val = recordValuation(u.code, { gsz: u.gsz, gztime: u.gztime });
+            nextSeries[u.code] = val;
+          }
+        });
+        if (Object.keys(nextSeries).length > 0) {
+          setValuationSeries(prev => ({ ...prev, ...nextSeries }));
+        }
       }
     } catch (e) {
       console.error(e);
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
+      refreshCycleStartRef.current = Date.now();
       try {
         await processPendingQueue();
       }catch (e) {
@@ -1846,6 +2040,13 @@ export default function HomePage() {
         const next = dedupeByCode([...newFunds, ...funds]);
         setFunds(next);
         storageHelper.setItem('funds', JSON.stringify(next));
+        const nextSeries = {};
+        newFunds.forEach(u => {
+          if (u?.code != null && !u.noValuation && Number.isFinite(Number(u.gsz))) {
+            nextSeries[u.code] = recordValuation(u.code, { gsz: u.gsz, gztime: u.gztime });
+          }
+        });
+        if (Object.keys(nextSeries).length > 0) setValuationSeries(prev => ({ ...prev, ...nextSeries }));
       }
       setSearchTerm('');
       setSelectedFunds([]);
@@ -1917,6 +2118,24 @@ export default function HomePage() {
     setPendingTrades(prev => {
       const next = prev.filter((trade) => trade?.fundCode !== removeCode);
       storageHelper.setItem('pendingTrades', JSON.stringify(next));
+      return next;
+    });
+
+    // 同步删除该基金的交易记录
+    setTransactions(prev => {
+      if (!prev[removeCode]) return prev;
+      const next = { ...prev };
+      delete next[removeCode];
+      storageHelper.setItem('transactions', JSON.stringify(next));
+      return next;
+    });
+
+    // 同步删除该基金的估值分时数据
+    clearFund(removeCode);
+    setValuationSeries(prev => {
+      if (!(removeCode in prev)) return prev;
+      const next = { ...prev };
+      delete next[removeCode];
       return next;
     });
   };
@@ -2023,6 +2242,32 @@ export default function HomePage() {
           })
       : [];
 
+    const transactionsSource = payload.transactions && typeof payload.transactions === 'object' && !Array.isArray(payload.transactions)
+      ? payload.transactions
+      : {};
+    const transactions = {};
+    Object.keys(transactionsSource)
+      .map(normalizeCode)
+      .filter((code) => uniqueFundCodes.includes(code))
+      .sort()
+      .forEach((code) => {
+        const list = Array.isArray(transactionsSource[code]) ? transactionsSource[code] : [];
+        const normalized = list
+          .map((t) => {
+            const id = t?.id ? String(t.id) : '';
+            const type = t?.type || '';
+            const share = normalizeNumber(t?.share);
+            const amount = normalizeNumber(t?.amount);
+            const price = normalizeNumber(t?.price);
+            const date = t?.date || '';
+            const timestamp = Number.isFinite(t?.timestamp) ? t.timestamp : 0;
+            return { id, type, share, amount, price, date, timestamp };
+          })
+          .filter((t) => t.id || t.timestamp)
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        if (normalized.length > 0) transactions[code] = normalized;
+      });
+
     const viewMode = payload.viewMode === 'list' ? 'list' : 'card';
 
     return JSON.stringify({
@@ -2034,6 +2279,7 @@ export default function HomePage() {
       refreshMs: Number.isFinite(payload.refreshMs) ? payload.refreshMs : 30000,
       holdings,
       pendingTrades,
+      transactions,
       viewMode
     });
   }
@@ -2041,7 +2287,7 @@ export default function HomePage() {
   const collectLocalPayload = (keys = null) => {
     try {
       const all = {};
-
+      // 不包含 fundValuationTimeseries，该数据暂不同步到云端
       if (!keys || keys.has('funds')) {
         all.funds = JSON.parse(localStorage.getItem('funds') || '[]');
       }
@@ -2068,6 +2314,9 @@ export default function HomePage() {
       }
       if (!keys || keys.has('pendingTrades')) {
         all.pendingTrades = JSON.parse(localStorage.getItem('pendingTrades') || '[]');
+      }
+      if (!keys || keys.has('transactions')) {
+        all.transactions = JSON.parse(localStorage.getItem('transactions') || '{}');
       }
 
       // 如果是全量收集（keys 为 null），进行完整的数据清洗和验证逻辑
@@ -2194,6 +2443,10 @@ export default function HomePage() {
       setPendingTrades(nextPendingTrades);
       storageHelper.setItem('pendingTrades', JSON.stringify(nextPendingTrades));
 
+      const nextTransactions = cloudData.transactions && typeof cloudData.transactions === 'object' ? cloudData.transactions : {};
+      setTransactions(nextTransactions);
+      storageHelper.setItem('transactions', JSON.stringify(nextTransactions));
+
       if (nextFunds.length) {
         const codes = Array.from(new Set(nextFunds.map((f) => f.code)));
         if (codes.length) await refreshAll(codes);
@@ -2206,7 +2459,7 @@ export default function HomePage() {
     }
   };
 
-  const fetchCloudConfig = async (userId) => {
+  const fetchCloudConfig = async (userId, checkConflict = false) => {
     if (!userId) return;
     try {
       const { data, error } = await supabase
@@ -2229,9 +2482,14 @@ export default function HomePage() {
         const cloudComparable = getComparablePayload(data.data);
 
         if (localComparable !== cloudComparable) {
-          // 如果数据不一致，无论时间戳如何，都提示用户
-          // 用户可以选择使用本地数据覆盖云端，或者使用云端数据覆盖本地
-          setCloudConfigModal({ open: true, userId, type: 'conflict', cloudData: data.data });
+          // 如果数据不一致
+          if (checkConflict) {
+            // 只有明确要求检查冲突时才提示（例如刚登录时）
+            setCloudConfigModal({ open: true, userId, type: 'conflict', cloudData: data.data });
+            return;
+          }
+          // 否则直接覆盖本地（例如已登录状态下的刷新）
+          await applyCloudConfig(data.data, data.updated_at);
           return;
         }
 
@@ -2333,10 +2591,12 @@ export default function HomePage() {
         favorites: JSON.parse(localStorage.getItem('favorites') || '[]'),
         groups: JSON.parse(localStorage.getItem('groups') || '[]'),
         collapsedCodes: JSON.parse(localStorage.getItem('collapsedCodes') || '[]'),
+        collapsedTrends: JSON.parse(localStorage.getItem('collapsedTrends') || '[]'),
         refreshMs: parseInt(localStorage.getItem('refreshMs') || '30000', 10),
         viewMode: localStorage.getItem('viewMode') === 'list' ? 'list' : 'card',
         holdings: JSON.parse(localStorage.getItem('holdings') || '{}'),
         pendingTrades: JSON.parse(localStorage.getItem('pendingTrades') || '[]'),
+        transactions: JSON.parse(localStorage.getItem('transactions') || '{}'),
         exportedAt: nowInTz().toISOString()
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -2389,6 +2649,7 @@ export default function HomePage() {
         const currentFavorites = JSON.parse(localStorage.getItem('favorites') || '[]');
         const currentGroups = JSON.parse(localStorage.getItem('groups') || '[]');
         const currentCollapsed = JSON.parse(localStorage.getItem('collapsedCodes') || '[]');
+        const currentTrends = JSON.parse(localStorage.getItem('collapsedTrends') || '[]');
         const currentPendingTrades = JSON.parse(localStorage.getItem('pendingTrades') || '[]');
 
         let mergedFunds = currentFunds;
@@ -2434,6 +2695,12 @@ export default function HomePage() {
           storageHelper.setItem('collapsedCodes', JSON.stringify(mergedCollapsed));
         }
 
+        if (Array.isArray(data.collapsedTrends)) {
+          const mergedTrends = Array.from(new Set([...currentTrends, ...data.collapsedTrends]));
+          setCollapsedTrends(new Set(mergedTrends));
+          storageHelper.setItem('collapsedTrends', JSON.stringify(mergedTrends));
+        }
+
         if (typeof data.refreshMs === 'number' && data.refreshMs >= 5000) {
           setRefreshMs(data.refreshMs);
           setTempSeconds(Math.round(data.refreshMs / 1000));
@@ -2447,6 +2714,20 @@ export default function HomePage() {
           const mergedHoldings = { ...JSON.parse(localStorage.getItem('holdings') || '{}'), ...data.holdings };
           setHoldings(mergedHoldings);
           storageHelper.setItem('holdings', JSON.stringify(mergedHoldings));
+        }
+
+        if (data.transactions && typeof data.transactions === 'object') {
+             const currentTransactions = JSON.parse(localStorage.getItem('transactions') || '{}');
+             const mergedTransactions = { ...currentTransactions };
+             Object.entries(data.transactions).forEach(([code, txs]) => {
+                 if (!Array.isArray(txs)) return;
+                 const existing = mergedTransactions[code] || [];
+                 const existingIds = new Set(existing.map(t => t.id));
+                 const newTxs = txs.filter(t => !existingIds.has(t.id));
+                 mergedTransactions[code] = [...existing, ...newTxs].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+             });
+             setTransactions(mergedTransactions);
+             storageHelper.setItem('transactions', JSON.stringify(mergedTransactions));
         }
 
         if (Array.isArray(data.pendingTrades)) {
@@ -2565,40 +2846,62 @@ export default function HomePage() {
       <div className="navbar glass" ref={navbarRef}>
         {refreshing && <div className="loading-bar"></div>}
         <div className={`brand ${(isSearchFocused || selectedFunds.length > 0) ? 'search-focused-sibling' : ''}`}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="var(--accent)" strokeWidth="2" />
-            <path d="M5 14c2-4 7-6 14-5" stroke="var(--primary)" strokeWidth="2" />
-          </svg>
+          <div
+            style={{
+              width: 24,
+              height: 24,
+              marginRight: 4,
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+            }}
+            title={isSyncing ? '正在同步到云端...' : undefined}
+          >
+            {/* 同步中图标 */}
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                margin: 'auto',
+                opacity: isSyncing ? 1 : 0,
+                transform: isSyncing ? 'translateY(0px)' : 'translateY(4px)',
+                transition: 'opacity 0.25s ease, transform 0.25s ease',
+              }}
+            >
+              <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" stroke="var(--primary)" />
+              <path d="M12 12v9" stroke="var(--accent)" />
+              <path d="m16 16-4-4-4 4" stroke="var(--accent)" />
+            </svg>
+            {/* 默认图标 */}
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                margin: 'auto',
+                opacity: isSyncing ? 0 : 1,
+                transform: isSyncing ? 'translateY(-4px)' : 'translateY(0px)',
+                transition: 'opacity 0.25s ease, transform 0.25s ease',
+              }}
+            >
+              <circle cx="12" cy="12" r="10" stroke="var(--accent)" strokeWidth="2" />
+              <path d="M5 14c2-4 7-6 14-5" stroke="var(--primary)" strokeWidth="2" />
+            </svg>
+          </div>
           <span>基估宝</span>
-          <AnimatePresence>
-            {isSyncing && (
-              <motion.div
-                key="sync-icon"
-                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                style={{ display: 'flex', alignItems: 'center', overflow: 'hidden', height: 24 }}
-                title="正在同步到云端..."
-              >
-                <motion.svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  animate={{ opacity: [0.5, 1, 0.5] }}
-                  transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-                >
-                  <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" stroke="var(--primary)" />
-                  <path d="M12 12v9" stroke="var(--accent)" />
-                  <path d="m16 16-4-4-4 4" stroke="var(--accent)" />
-                </motion.svg>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
         <div className={`glass add-fund-section navbar-add-fund ${(isSearchFocused || selectedFunds.length > 0) ? 'search-focused' : ''}`} role="region" aria-label="添加基金">
           <div className="search-container" ref={dropdownRef}>
@@ -2722,6 +3025,7 @@ export default function HomePage() {
               <UpdateIcon width="14" height="14" />
             </div>
           )}
+          <Image unoptimized alt="项目Github地址" src={githubImg} style={{ width: '30px', height: '30px', cursor: 'pointer' }} onClick={() => window.open("https://github.com/hzm0321/real-time-fund")} />
           {isMobile && (
             <button
               className="icon-button mobile-search-btn"
@@ -2735,20 +3039,22 @@ export default function HomePage() {
               </svg>
             </button>
           )}
-          <div className="badge" title="当前刷新频率">
-            <span>刷新</span>
-            <strong>{Math.round(refreshMs / 1000)}秒</strong>
-          </div>
-          <button
-            className="icon-button"
-            aria-label="立即刷新"
-            onClick={manualRefresh}
-            disabled={refreshing || funds.length === 0}
-            aria-busy={refreshing}
-            title="立即刷新"
+          <div
+            className="refresh-btn-wrap"
+            style={{ '--progress': refreshProgress }}
+            title={`刷新周期 ${Math.round(refreshMs / 1000)} 秒`}
           >
-            <RefreshIcon className={refreshing ? 'spin' : ''} width="18" height="18" />
-          </button>
+            <button
+              className="icon-button"
+              aria-label="立即刷新"
+              onClick={manualRefresh}
+              disabled={refreshing || funds.length === 0}
+              aria-busy={refreshing}
+              title="立即刷新"
+            >
+              <RefreshIcon className={refreshing ? 'spin' : ''} width="18" height="18" />
+            </button>
+          </div>
           {/*<button*/}
           {/*  className="icon-button"*/}
           {/*  aria-label="打开设置"*/}
@@ -3039,7 +3345,7 @@ export default function HomePage() {
                   holdings={holdings}
                   groupName={getGroupName()}
                   getProfit={getHoldingProfit}
-                  stickyTop={navbarHeight + filterBarHeight + (isMobile ? -2 : 0)}
+                  stickyTop={navbarHeight + filterBarHeight + (isMobile ? -14 : 0)}
                 />
 
               {currentTab !== 'all' && currentTab !== 'fav' && (
@@ -3523,6 +3829,12 @@ export default function HomePage() {
                                     基于 {Math.round(f.estPricedCoverage * 100)}% 持仓估算
                                   </div>
                                 )}
+                                {Array.isArray(valuationSeries[f.code]) && valuationSeries[f.code].length >= 2 && (
+                                  <FundIntradayChart
+                                    series={valuationSeries[f.code]}
+                                    referenceNav={f.dwjz != null ? Number(f.dwjz) : undefined}
+                                  />
+                                )}
                                 <div
                                   style={{ marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}
                                   className="title"
@@ -3579,6 +3891,7 @@ export default function HomePage() {
                                   code={f.code} 
                                   isExpanded={!collapsedTrends.has(f.code)}
                                   onToggleExpand={() => toggleTrendCollapse(f.code)}
+                                  transactions={transactions[f.code] || []}
                                 />
                               </>
                             )}
@@ -3712,6 +4025,7 @@ export default function HomePage() {
             fund={actionModal.fund}
             onClose={() => setActionModal({ open: false, fund: null })}
             onAction={(type) => handleAction(type, actionModal.fund)}
+            hasHistory={!!transactions[actionModal.fund?.code]?.length}
           />
         )}
       </AnimatePresence>
@@ -3725,6 +4039,37 @@ export default function HomePage() {
             onClose={() => setTradeModal({ open: false, fund: null, type: 'buy' })}
             onConfirm={(data) => handleTrade(tradeModal.fund, data)}
             pendingTrades={pendingTrades}
+            onDeletePending={(id) => {
+                setPendingTrades(prev => {
+                    const next = prev.filter(t => t.id !== id);
+                    storageHelper.setItem('pendingTrades', JSON.stringify(next));
+                    return next;
+                });
+                showToast('已撤销待处理交易', 'success');
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {addHistoryModal.open && (
+          <AddHistoryModal
+            fund={addHistoryModal.fund}
+            onClose={() => setAddHistoryModal({ open: false, fund: null })}
+            onConfirm={handleAddHistory}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {historyModal.open && (
+          <TransactionHistoryModal
+            fund={historyModal.fund}
+            transactions={transactions[historyModal.fund?.code] || []}
+            pendingTransactions={pendingTrades.filter(t => t.fundCode === historyModal.fund?.code)}
+            onClose={() => setHistoryModal({ open: false, fund: null })}
+            onDeleteTransaction={(id) => handleDeleteTransaction(historyModal.fund?.code, id)}
+            onAddHistory={() => setAddHistoryModal({ open: true, fund: historyModal.fund })}
             onDeletePending={(id) => {
                 setPendingTrades(prev => {
                     const next = prev.filter(t => t.id !== id);
@@ -3814,6 +4159,7 @@ export default function HomePage() {
           <ScanPickModal
             onClose={() => setScanModalOpen(false)}
             onPick={handleScanPick}
+            onFilesDrop={handleFilesDrop}
             isScanning={isScanning}
           />
         )}
@@ -3946,3 +4292,4 @@ export default function HomePage() {
     </div>
   );
 }
+

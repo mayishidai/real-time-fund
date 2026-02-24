@@ -134,7 +134,7 @@ export default function TradeModal({ type, fund, holding, onClose, onConfirm, pe
 
   const handleFinalConfirm = () => {
     if (isBuy) {
-      onConfirm({ share: calcShare === '待确认' ? null : Number(calcShare), price: Number(price), totalCost: Number(amount), date, isAfter3pm, feeRate: Number(feeRate) });
+      onConfirm({ share: calcShare === '待确认' ? null : Number(calcShare), price: Number(price), totalCost: Number(amount), date: actualDate || date, isAfter3pm, feeRate: Number(feeRate) });
       return;
     }
     onConfirm({ share: Number(share), price: Number(price), date: actualDate || date, isAfter3pm, feeMode, feeValue });

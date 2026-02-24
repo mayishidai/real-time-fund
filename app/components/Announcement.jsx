@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const ANNOUNCEMENT_KEY = 'hasClosedAnnouncement_v7';
+const ANNOUNCEMENT_KEY = 'hasClosedAnnouncement_v8';
 
 export default function Announcement() {
   const [isVisible, setIsVisible] = useState(false);
@@ -63,13 +63,17 @@ export default function Announcement() {
               <span>公告</span>
             </div>
             <div style={{ color: 'var(--text)', lineHeight: '1.6', fontSize: '15px' }}>
-              因为节前放假因素，所以节前不会有大的功能更新调整。
-              综合目前大家的需求，以下功能将会在节后上线：
+              为了增加更多用户方便访问, 新增国内加速地址：<a className="link-button"
+                                                          target="_blank"
+                                                          rel="noopener noreferrer"
+                                                          style={{ color: 'var(--primary)', textDecoration: 'underline', padding: '0 4px', fontWeight: 600 }} href="https://fund.cc.cd/">https://fund.cc.cd/</a>
+              <p>节后第一次更新内容如下：</p>
+              <p>1. OCR 识别截图导入基金。</p>
+              <p>2. 基金历史曲线图。</p>
+              <p>3. 买入、卖出历史记录。</p>
+              以下内容会在近期更新：
               <p>1. 定投。</p>
-              <p>2. 自定义内容展示布局。</p>
-              <p>3. 基金历史曲线图。</p>
-              <p>4. 基金实时估值曲线。</p>
-              <p>5. OCR 识别截图导入基金。</p>
+              <p>2. 自定义布局。</p>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>

@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { CloseIcon, SettingsIcon } from './Icons';
 
-export default function HoldingActionModal({ fund, onClose, onAction }) {
+export default function HoldingActionModal({ fund, onClose, onAction, hasHistory }) {
   return (
     <motion.div
       className="modal-overlay"
@@ -27,6 +27,29 @@ export default function HoldingActionModal({ fund, onClose, onAction }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <SettingsIcon width="20" height="20" />
             <span>持仓操作</span>
+            {hasHistory && (
+              <button
+                type="button"
+                onClick={() => onAction('history')}
+                style={{ 
+                  marginLeft: 8, 
+                  padding: '4px 8px', 
+                  fontSize: '12px', 
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="查看交易记录"
+              >
+                <span>📜</span>
+                <span>交易记录</span>
+              </button>
+            )}
           </div>
           <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
             <CloseIcon width="20" height="20" />
