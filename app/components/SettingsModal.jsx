@@ -39,6 +39,7 @@ export default function SettingsModal({
           <input
             className="input"
             type="number"
+            inputMode="numeric"
             min="10"
             step="5"
             value={tempSeconds}

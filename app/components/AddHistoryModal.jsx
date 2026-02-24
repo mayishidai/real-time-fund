@@ -187,6 +187,7 @@ export default function AddHistoryModal({ fund, onClose, onConfirm }) {
           </label>
           <input
             type="number"
+            inputMode="decimal"
             className="input"
             value={amount}
             onChange={handleAmountChange}

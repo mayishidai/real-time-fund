@@ -158,6 +158,7 @@ export default function HoldingEditModal({ fund, holding, onClose, onSave }) {
                 </label>
                 <input
                   type="number"
+                  inputMode="decimal"
                   step="any"
                   className={`input ${!amount ? 'error' : ''}`}
                   value={amount}
@@ -175,6 +176,7 @@ export default function HoldingEditModal({ fund, holding, onClose, onSave }) {
                 </label>
                 <input
                   type="number"
+                  inputMode="decimal"
                   step="any"
                   className="input"
                   value={profit}
@@ -192,6 +194,7 @@ export default function HoldingEditModal({ fund, holding, onClose, onSave }) {
                 </label>
                 <input
                   type="number"
+                  inputMode="decimal"
                   step="any"
                   className={`input ${!share ? 'error' : ''}`}
                   value={share}
@@ -209,6 +212,7 @@ export default function HoldingEditModal({ fund, holding, onClose, onSave }) {
                 </label>
                 <input
                   type="number"
+                  inputMode="decimal"
                   step="any"
                   className={`input ${!cost ? 'error' : ''}`}
                   value={cost}
