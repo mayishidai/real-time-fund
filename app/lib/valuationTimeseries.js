@@ -2,6 +2,7 @@
  * 记录每次调用基金估值接口的结果，用于分时图。
  * 规则：获取到最新日期的数据时，清掉所有老日期的数据，只保留当日分时点。
  */
+import { isPlainObject, isString } from 'lodash';
 
 const STORAGE_KEY = 'fundValuationTimeseries';
 
@@ -10,7 +11,7 @@ function getStored() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return typeof parsed === 'object' && parsed !== null ? parsed : {};
+    return isPlainObject(parsed) ? parsed : {};
   } catch {
     return {};
   }
@@ -29,7 +30,7 @@ function setStored(data) {
  * 从 gztime 或 Date 得到日期字符串 YYYY-MM-DD
  */
 function toDateStr(gztimeOrNow) {
-  if (typeof gztimeOrNow === 'string' && /^\d{4}-\d{2}-\d{2}/.test(gztimeOrNow)) {
+  if (isString(gztimeOrNow) && /^\d{4}-\d{2}-\d{2}/.test(gztimeOrNow)) {
     return gztimeOrNow.slice(0, 10);
   }
   try {
@@ -59,7 +60,7 @@ export function recordValuation(code, payload) {
   const dateStr = toDateStr(gztime);
   if (!dateStr) return getValuationSeries(code);
 
-  const timeLabel = typeof gztime === 'string' && gztime.length > 10
+  const timeLabel = isString(gztime) && gztime.length > 10
     ? gztime.slice(11, 16)
     : (() => {
         const d = new Date();

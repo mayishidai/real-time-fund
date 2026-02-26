@@ -27,7 +27,6 @@ export default function HoldingActionModal({ fund, onClose, onAction, hasHistory
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <SettingsIcon width="20" height="20" />
             <span>持仓操作</span>
-            {hasHistory && (
               <button
                 type="button"
                 onClick={() => onAction('history')}
@@ -49,7 +48,6 @@ export default function HoldingActionModal({ fund, onClose, onAction, hasHistory
                 <span>📜</span>
                 <span>交易记录</span>
               </button>
-            )}
           </div>
           <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
             <CloseIcon width="20" height="20" />
@@ -62,11 +60,26 @@ export default function HoldingActionModal({ fund, onClose, onAction, hasHistory
         </div>
 
         <div className="grid" style={{ gap: 12 }}>
-          <button className="button col-6" onClick={() => onAction('buy')} style={{ background: 'rgba(34, 211, 238, 0.1)', border: '1px solid var(--primary)', color: 'var(--primary)' }}>
+          <button
+            className="button col-4"
+            onClick={() => onAction('buy')}
+            style={{ background: 'rgba(34, 211, 238, 0.1)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: 14 }}
+          >
             加仓
           </button>
-          <button className="button col-6" onClick={() => onAction('sell')} style={{ background: 'rgba(248, 113, 113, 0.1)', border: '1px solid var(--danger)', color: 'var(--danger)' }}>
+          <button
+            className="button col-4"
+            onClick={() => onAction('sell')}
+            style={{ background: 'rgba(248, 113, 113, 0.1)', border: '1px solid var(--danger)', color: 'var(--danger)', fontSize: 14 }}
+          >
             减仓
+          </button>
+          <button
+            className="button col-4"
+            onClick={() => onAction('dca')}
+            style={{ background: 'rgba(34, 211, 238, 0.12)', border: '1px solid #ffffff', color: '#ffffff', fontSize: 14 }}
+          >
+            定投
           </button>
           <button className="button col-12" onClick={() => onAction('edit')} style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text)' }}>
             编辑持仓

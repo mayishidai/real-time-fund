@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const ANNOUNCEMENT_KEY = 'hasClosedAnnouncement_v8';
+const ANNOUNCEMENT_KEY = 'hasClosedAnnouncement_v9';
 
 export default function Announcement() {
   const [isVisible, setIsVisible] = useState(false);
@@ -67,13 +67,11 @@ export default function Announcement() {
                                                           target="_blank"
                                                           rel="noopener noreferrer"
                                                           style={{ color: 'var(--primary)', textDecoration: 'underline', padding: '0 4px', fontWeight: 600 }} href="https://fund.cc.cd/">https://fund.cc.cd/</a>
-              <p>节后第一次更新内容如下：</p>
-              <p>1. OCR 识别截图导入基金。</p>
-              <p>2. 基金历史曲线图。</p>
-              <p>3. 买入、卖出历史记录。</p>
+              <p>v0.1.7 版本更新内容如下：</p>
+              <p>1. 实时基金估值折线图（测试版）。</p>
+              <p>2. 定投。</p>
               以下内容会在近期更新：
-              <p>1. 定投。</p>
-              <p>2. 自定义布局。</p>
+              <p>1. 自定义布局。</p>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>

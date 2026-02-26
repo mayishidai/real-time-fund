@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,6 +11,7 @@ import {
   Filler
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import { isNumber } from 'lodash';
 
 ChartJS.register(
   CategoryScale,
@@ -27,6 +28,9 @@ ChartJS.register(
  * referenceNav: 参考净值（最新单位净值），用于计算涨跌幅；未传则用当日第一个估值作为参考。
  */
 export default function FundIntradayChart({ series = [], referenceNav }) {
+  const chartRef = useRef(null);
+  const hoverTimeoutRef = useRef(null);
+
   const chartData = useMemo(() => {
     if (!series.length) return { labels: [], datasets: [] };
     const labels = series.map((d) => d.time);
@@ -91,19 +95,62 @@ export default function FundIntradayChart({ series = [], referenceNav }) {
       },
       y: {
         display: true,
-        position: 'right',
+        position: 'left',
         grid: { color: '#1f2937', drawBorder: false },
         ticks: {
           color: '#9ca3af',
           font: { size: 10 },
-          callback: (v) => (typeof v === 'number' ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : v)
+          callback: (v) => (isNumber(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : v)
         }
       }
     },
-    onHover: (event, chartElement) => {
-      event.native.target.style.cursor = chartElement[0] ? 'crosshair' : 'default';
+    onHover: (event, chartElement, chart) => {
+      const target = event?.native?.target;
+      const currentChart = chart || chartRef.current;
+      if (!currentChart) return;
+
+      const tooltipActive = currentChart.tooltip?._active ?? [];
+      const activeElements = currentChart.getActiveElements
+        ? currentChart.getActiveElements()
+        : [];
+      const hasActive =
+        (chartElement && chartElement.length > 0) ||
+        (tooltipActive && tooltipActive.length > 0) ||
+        (activeElements && activeElements.length > 0);
+
+      if (target) {
+        target.style.cursor = hasActive ? 'crosshair' : 'default';
+      }
+
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+        hoverTimeoutRef.current = null;
+      }
+
+      if (hasActive) {
+        hoverTimeoutRef.current = setTimeout(() => {
+          const c = chartRef.current || currentChart;
+          if (!c) return;
+          c.setActiveElements([]);
+          if (c.tooltip) {
+            c.tooltip.setActiveElements([], { x: 0, y: 0 });
+          }
+          c.update();
+          if (target) {
+            target.style.cursor = 'default';
+          }
+        }, 2000);
+      }
     }
   }), []);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const plugins = useMemo(() => [{
     id: 'crosshair',
@@ -147,19 +194,25 @@ export default function FundIntradayChart({ series = [], referenceNav }) {
       if (labels && index in labels) {
         const timeStr = String(labels[index]);
         const tw = ctx.measureText(timeStr).width + 8;
+        const chartLeft = chart.scales.x.left;
+        const chartRight = chart.scales.x.right;
+        let labelLeft = x - tw / 2;
+        if (labelLeft < chartLeft) labelLeft = chartLeft;
+        if (labelLeft + tw > chartRight) labelLeft = chartRight - tw;
+        const labelCenterX = labelLeft + tw / 2;
         ctx.fillStyle = prim;
-        ctx.fillRect(x - tw / 2, bottomY, tw, 16);
+        ctx.fillRect(labelLeft, bottomY, tw, 16);
         ctx.fillStyle = bgText;
-        ctx.fillText(timeStr, x, bottomY + 8);
+        ctx.fillText(timeStr, labelCenterX, bottomY + 8);
       }
       if (data && index in data) {
         const val = data[index];
-        const valueStr = typeof val === 'number' ? `${val >= 0 ? '+' : ''}${val.toFixed(2)}%` : String(val);
+        const valueStr = isNumber(val) ? `${val >= 0 ? '+' : ''}${val.toFixed(2)}%` : String(val);
         const vw = ctx.measureText(valueStr).width + 8;
         ctx.fillStyle = prim;
-        ctx.fillRect(rightX - vw, y - 8, vw, 16);
+        ctx.fillRect(leftX, y - 8, vw, 16);
         ctx.fillStyle = bgText;
-        ctx.fillText(valueStr, rightX - vw / 2, y);
+        ctx.fillText(valueStr, leftX + vw / 2, y);
       }
       ctx.restore();
     }
@@ -191,7 +244,7 @@ export default function FundIntradayChart({ series = [], referenceNav }) {
         {displayDate && <span style={{ fontSize: 11 }}>估值日期 {displayDate}</span>}
       </div>
       <div style={{ position: 'relative', height: 100, width: '100%' }}>
-        <Line data={chartData} options={options} plugins={plugins} />
+        <Line ref={chartRef} data={chartData} options={options} plugins={plugins} />
       </div>
     </div>
   );

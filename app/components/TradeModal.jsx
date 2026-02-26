@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import { isNumber } from 'lodash';
 import { fetchSmartFundNetValue } from '../api/fund';
 import { DatePicker, NumericInput } from './Common';
 import ConfirmModal from './ConfirmModal';
@@ -58,7 +59,7 @@ export default function TradeModal({ type, fund, holding, onClose, onConfirm, pe
     }
   }, [showPendingList, currentPendingTrades]);
 
-  const getEstimatePrice = () => fund?.estPricedCoverage > 0.05 ? fund?.estGsz : (typeof fund?.gsz === 'number' ? fund?.gsz : Number(fund?.dwjz));
+  const getEstimatePrice = () => fund?.estPricedCoverage > 0.05 ? fund?.estGsz : (isNumber(fund?.gsz) ? fund?.gsz : Number(fund?.dwjz));
   const [price, setPrice] = useState(getEstimatePrice());
   const [loadingPrice, setLoadingPrice] = useState(false);
   const [actualDate, setActualDate] = useState(null);

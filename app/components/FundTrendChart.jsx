@@ -35,6 +35,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const chartRef = useRef(null);
+  const hoverTimeoutRef = useRef(null);
 
   useEffect(() => {
     // If collapsed, don't fetch data unless we have no data yet
@@ -198,7 +199,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
         },
         y: {
           display: true,
-          position: 'right',
+          position: 'left',
           grid: {
             color: '#1f2937',
             drawBorder: false,
@@ -217,14 +218,61 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
         mode: 'index',
         intersect: false,
       },
-      onHover: (event, chartElement) => {
-        event.native.target.style.cursor = chartElement[0] ? 'crosshair' : 'default';
+      onHover: (event, chartElement, chart) => {
+        const target = event?.native?.target;
+        const currentChart = chart || chartRef.current;
+        if (!currentChart) return;
+
+        const tooltipActive = currentChart.tooltip?._active ?? [];
+        const activeElements = currentChart.getActiveElements
+          ? currentChart.getActiveElements()
+          : [];
+        const hasActive =
+          (chartElement && chartElement.length > 0) ||
+          (tooltipActive && tooltipActive.length > 0) ||
+          (activeElements && activeElements.length > 0);
+
+        if (target) {
+          target.style.cursor = hasActive ? 'crosshair' : 'default';
+        }
+
+        // 仅用于桌面端 hover 改变光标，不在这里做 2 秒清除，避免移动端 hover 事件不稳定
+      },
+      onClick: () => {}
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
       }
     };
   }, []);
 
   const plugins = useMemo(() => [{
     id: 'crosshair',
+    afterEvent: (chart, args) => {
+      const { event, replay } = args || {};
+      if (!event || replay) return; // 忽略动画重放
+    
+      const type = event.type;
+      if (type === 'mousemove' || type === 'click') {
+        if (hoverTimeoutRef.current) {
+          clearTimeout(hoverTimeoutRef.current);
+          hoverTimeoutRef.current = null;
+        }
+    
+        hoverTimeoutRef.current = setTimeout(() => {
+          if (!chart) return;
+          chart.setActiveElements([]);
+          if (chart.tooltip) {
+            chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+          }
+          chart.update();
+        }, 2000);
+      }
+    },
     afterDraw: (chart) => {
       const ctx = chart.ctx;
       const datasets = chart.data.datasets;
@@ -263,7 +311,15 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
           const textW = ctx.measureText(text).width;
           const w = textW + paddingH * 2;
           const h = 18;
-          const left = x - w / 2;
+
+          // 计算原始 left，并对左右边界做收缩，避免在最右/最左侧被裁剪
+          const chartLeft = chart.scales.x.left;
+          const chartRight = chart.scales.x.right;
+          let left = x - w / 2;
+          if (left < chartLeft) left = chartLeft;
+          if (left + w > chartRight) left = chartRight - w;
+          const centerX = left + w / 2;
+
           const top = y - 24;
 
           drawRoundRect(left, top, w, h, radius);
@@ -275,7 +331,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
           ctx.fillStyle = textColor;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(text, x, top + h / 2);
+          ctx.fillText(text, centerX, top + h / 2);
           ctx.restore();
       };
 
@@ -349,21 +405,27 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
            const value = datasets[datasetIndex].data[index];
 
            if (dateStr !== undefined && value !== undefined) {
-               // X axis label (date)
+              // X axis label (date) with boundary clamping
                const textWidth = ctx.measureText(dateStr).width + 8;
+               const chartLeft = chart.scales.x.left;
+               const chartRight = chart.scales.x.right;
+               let labelLeft = x - textWidth / 2;
+               if (labelLeft < chartLeft) labelLeft = chartLeft;
+               if (labelLeft + textWidth > chartRight) labelLeft = chartRight - textWidth;
+               const labelCenterX = labelLeft + textWidth / 2;
                ctx.fillStyle = primaryColor;
-               ctx.fillRect(x - textWidth / 2, bottomY, textWidth, 16);
+               ctx.fillRect(labelLeft, bottomY, textWidth, 16);
                ctx.fillStyle = '#0f172a'; // --background
-               ctx.fillText(dateStr, x, bottomY + 8);
+               ctx.fillText(dateStr, labelCenterX, bottomY + 8);
 
                // Y axis label (value)
                const valueStr = (typeof value === 'number' ? value.toFixed(2) : value) + '%';
                const valWidth = ctx.measureText(valueStr).width + 8;
                ctx.fillStyle = primaryColor;
-               ctx.fillRect(rightX - valWidth, y - 8, valWidth, 16);
+               ctx.fillRect(leftX, y - 8, valWidth, 16);
                ctx.fillStyle = '#0f172a'; // --background
                ctx.textAlign = 'center';
-               ctx.fillText(valueStr, rightX - valWidth / 2, y);
+               ctx.fillText(valueStr, leftX + valWidth / 2, y);
            }
         }
 

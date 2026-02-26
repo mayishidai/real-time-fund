@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import { isString } from 'lodash';
 import { cachedRequest, clearCachedRequest } from '../lib/cacheRequest';
 
 dayjs.extend(utc);
@@ -20,7 +21,7 @@ const nowInTz = () => dayjs().tz(TZ);
 const toTz = (input) => (input ? dayjs.tz(input, TZ) : nowInTz());
 
 export const loadScript = (url) => {
-  if (typeof document === 'undefined' || !document.body) return Promise.resolve();
+  if (typeof document === 'undefined' || !document.body) return Promise.resolve(null);
 
   let cacheKey = url;
   try {
@@ -69,9 +70,7 @@ export const loadScript = (url) => {
       clearCachedRequest(cacheKey);
       throw new Error(result?.error || '数据加载失败');
     }
-    if (typeof window !== 'undefined' && result.apidata !== undefined) {
-      window.apidata = result.apidata;
-    }
+    return result.apidata;
   });
 };
 
@@ -79,9 +78,9 @@ export const fetchFundNetValue = async (code, date) => {
   if (typeof window === 'undefined') return null;
   const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${code}&page=1&per=1&sdate=${date}&edate=${date}`;
   try {
-    await loadScript(url);
-    if (window.apidata && window.apidata.content) {
-      const content = window.apidata.content;
+    const apidata = await loadScript(url);
+    if (apidata && apidata.content) {
+      const content = apidata.content;
       if (content.includes('暂无数据')) return null;
       const rows = content.split('<tr>');
       for (const row of rows) {
@@ -99,6 +98,32 @@ export const fetchFundNetValue = async (code, date) => {
   } catch (e) {
     return null;
   }
+};
+
+const parseLatestNetValueFromLsjzContent = (content) => {
+  if (!content || content.includes('暂无数据')) return null;
+  const rowMatches = content.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+  for (const row of rowMatches) {
+    const cells = row.match(/<td[^>]*>(.*?)<\/td>/gi) || [];
+    if (!cells.length) continue;
+    const getText = (td) => td.replace(/<[^>]+>/g, '').trim();
+    const dateStr = getText(cells[0] || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+    const navStr = getText(cells[1] || '');
+    const nav = parseFloat(navStr);
+    if (!Number.isFinite(nav)) continue;
+    let growth = null;
+    for (const c of cells) {
+      const txt = getText(c);
+      const m = txt.match(/([-+]?\d+(?:\.\d+)?)\s*%/);
+      if (m) {
+        growth = parseFloat(m[1]);
+        break;
+      }
+    }
+    return { date: dateStr, nav, growth };
+  }
+  return null;
 };
 
 export const fetchSmartFundNetValue = async (code, startDate) => {
@@ -157,43 +182,31 @@ export const fetchFundDataFallback = async (c) => {
       });
     } catch (e) {
     }
-    const tUrl = `https://qt.gtimg.cn/q=jj${c}`;
-    const tScript = document.createElement('script');
-    tScript.src = tUrl;
-    tScript.onload = () => {
-      const v = window[`v_jj${c}`];
-      if (v && v.length > 5) {
-        const p = v.split('~');
-        const name = fundName || p[1] || `未知基金(${c})`;
-        const dwjz = p[5];
-        const zzl = parseFloat(p[7]);
-        const jzrq = p[8] ? p[8].slice(0, 10) : '';
-        if (dwjz) {
-          resolve({
-            code: c,
-            name: name,
-            dwjz: dwjz,
-            gsz: null,
-            gztime: null,
-            jzrq: jzrq,
-            gszzl: null,
-            zzl: !isNaN(zzl) ? zzl : null,
-            noValuation: true,
-            holdings: []
-          });
-        } else {
-          reject(new Error('未能获取到基金数据'));
-        }
+    try {
+      const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${c}&page=1&per=1&sdate=&edate=`;
+      const apidata = await loadScript(url);
+      const content = apidata?.content || '';
+      const latest = parseLatestNetValueFromLsjzContent(content);
+      if (latest && latest.nav) {
+        const name = fundName || `未知基金(${c})`;
+        resolve({
+          code: c,
+          name,
+          dwjz: String(latest.nav),
+          gsz: null,
+          gztime: null,
+          jzrq: latest.date,
+          gszzl: null,
+          zzl: Number.isFinite(latest.growth) ? latest.growth : null,
+          noValuation: true,
+          holdings: []
+        });
       } else {
         reject(new Error('未能获取到基金数据'));
       }
-      if (document.body.contains(tScript)) document.body.removeChild(tScript);
-    };
-    tScript.onerror = () => {
-      if (document.body.contains(tScript)) document.body.removeChild(tScript);
+    } catch (e) {
       reject(new Error('基金数据加载失败'));
-    };
-    document.body.appendChild(tScript);
+    }
   });
 };
 
@@ -222,35 +235,29 @@ export const fetchFundData = async (c) => {
         jzrq: json.jzrq,
         gszzl: Number.isFinite(gszzlNum) ? gszzlNum : json.gszzl
       };
-      const tencentPromise = new Promise((resolveT) => {
-        const tUrl = `https://qt.gtimg.cn/q=jj${c}`;
-        const tScript = document.createElement('script');
-        tScript.src = tUrl;
-        tScript.onload = () => {
-          const v = window[`v_jj${c}`];
-          if (v) {
-            const p = v.split('~');
-            resolveT({
-              dwjz: p[5],
-              zzl: parseFloat(p[7]),
-              jzrq: p[8] ? p[8].slice(0, 10) : ''
-            });
-          } else {
-            resolveT(null);
-          }
-          if (document.body.contains(tScript)) document.body.removeChild(tScript);
-        };
-        tScript.onerror = () => {
-          if (document.body.contains(tScript)) document.body.removeChild(tScript);
-          resolveT(null);
-        };
-        document.body.appendChild(tScript);
+      const lsjzPromise = new Promise((resolveT) => {
+        const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${c}&page=1&per=1&sdate=&edate=`;
+        loadScript(url)
+          .then((apidata) => {
+            const content = apidata?.content || '';
+            const latest = parseLatestNetValueFromLsjzContent(content);
+            if (latest && latest.nav) {
+              resolveT({
+                dwjz: String(latest.nav),
+                zzl: Number.isFinite(latest.growth) ? latest.growth : null,
+                jzrq: latest.date
+              });
+            } else {
+              resolveT(null);
+            }
+          })
+          .catch(() => resolveT(null));
       });
       const holdingsPromise = new Promise((resolveH) => {
         const holdingsUrl = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${c}&topline=10&year=&month=&_=${Date.now()}`;
-        loadScript(holdingsUrl).then(async () => {
+        loadScript(holdingsUrl).then(async (apidata) => {
           let holdings = [];
-          const html = window.apidata?.content || '';
+          const html = apidata?.content || '';
           const headerRow = (html.match(/<thead[\s\S]*?<tr[\s\S]*?<\/tr>[\s\S]*?<\/thead>/i) || [])[0] || '';
           const headerCells = (headerRow.match(/<th[\s\S]*?>([\s\S]*?)<\/th>/gi) || []).map(th => th.replace(/<[^>]*>/g, '').trim());
           let idxCode = -1, idxName = -1, idxWeight = -1;
@@ -350,7 +357,7 @@ export const fetchFundData = async (c) => {
           resolveH(holdings);
         }).catch(() => resolveH([]));
       });
-      Promise.all([tencentPromise, holdingsPromise]).then(([tData, holdings]) => {
+      Promise.all([lsjzPromise, holdingsPromise]).then(([tData, holdings]) => {
         if (tData) {
           if (tData.jzrq && (!gzData.jzrq || tData.jzrq >= gzData.jzrq)) {
             gzData.dwjz = tData.dwjz;
@@ -432,7 +439,10 @@ export const fetchShanghaiIndexDate = async () => {
 };
 
 export const fetchLatestRelease = async () => {
-  const res = await fetch('https://api.github.com/repos/hzm0321/real-time-fund/releases/latest');
+  const url = process.env.NEXT_PUBLIC_GITHUB_LATEST_RELEASE_URL;
+  if (!url) return null;
+
+  const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
   return {
@@ -447,6 +457,72 @@ export const submitFeedback = async (formData) => {
     body: formData
   });
   return response.json();
+};
+
+// 使用智谱 GLM 从 OCR 文本中抽取基金名称
+export const extractFundNamesWithLLM = async (ocrText) => {
+  const apiKey = '8df8ccf74a174722847c83b7e222f2af.4A39rJvUeBVDmef1';
+  if (!apiKey || !ocrText) return [];
+
+  try {
+    const models = ['glm-4.5-flash', 'glm-4.7-flash'];
+    const model = models[Math.floor(Math.random() * models.length)];
+
+    const resp = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content:
+              '你是一个基金 OCR 文本解析助手。' +
+              '从下面的 OCR 文本中抽取其中出现的「基金名称列表」。' +
+              '要求：1）基金名称一般为中文，中间不能有空字符串,可包含部分英文或括号' +
+              '2）名称后面通常会跟着金额或持有金额（数字，可能带千分位逗号和小数）；' +
+              '3）忽略无关信息，只返回你判断为基金名称的字符串；' +
+              '4）去重后输出。输出格式：严格返回 JSON，如 {"fund_names": ["基金名称1","基金名称2"]}，不要输出任何多余说明',
+          },
+          {
+            role: 'user',
+            content: String(ocrText),
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 1024,
+        thinking: {
+          type: 'disabled',
+        },
+      }),
+    });
+
+    if (!resp.ok) {
+      return [];
+    }
+
+    const data = await resp.json();
+    let content = data?.choices?.[0]?.message?.content?.match(/\{[\s\S]*?\}/)?.[0];
+    if (!isString(content)) return [];
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return [];
+    }
+
+    const names = parsed?.fund_names;
+    if (!Array.isArray(names)) return [];
+    return names
+      .map((n) => (isString(n) ? n.trim().replaceAll(' ','') : ''))
+      .filter(Boolean);
+  } catch (e) {
+    return [];
+  }
 };
 
 let historyQueue = Promise.resolve();
@@ -497,26 +573,26 @@ export const fetchFundHistory = async (code, range = '1m') => {
 
         // Fetch first page to get metadata
         const firstUrl = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${code}&page=${page}&per=${per}&sdate=${sdate}&edate=${edate}`;
-        await loadScript(firstUrl);
-        
-        if (!window.apidata || !window.apidata.content || window.apidata.content.includes('暂无数据')) {
+        const firstApidata = await loadScript(firstUrl);
+
+        if (!firstApidata || !firstApidata.content || firstApidata.content.includes('暂无数据')) {
           resolve([]);
           return;
         }
 
         // Parse total pages
-        if (window.apidata.pages) {
-            totalPages = parseInt(window.apidata.pages, 10) || 1;
+        if (firstApidata.pages) {
+            totalPages = parseInt(firstApidata.pages, 10) || 1;
         }
 
-        allData = allData.concat(parseContent(window.apidata.content));
+        allData = allData.concat(parseContent(firstApidata.content));
 
         // Fetch remaining pages
         for (page = 2; page <= totalPages; page++) {
              const nextUrl = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${code}&page=${page}&per=${per}&sdate=${sdate}&edate=${edate}`;
-             await loadScript(nextUrl);
-             if (window.apidata && window.apidata.content) {
-                 allData = allData.concat(parseContent(window.apidata.content));
+             const nextApidata = await loadScript(nextUrl);
+             if (nextApidata && nextApidata.content) {
+                 allData = allData.concat(parseContent(nextApidata.content));
              }
         }
 
