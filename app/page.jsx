@@ -43,6 +43,7 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { recordValuation, getAllValuationSeries, clearFund } from './lib/valuationTimeseries';
 import { fetchFundData, fetchLatestRelease, fetchShanghaiIndexDate, fetchSmartFundNetValue, searchFunds, extractFundNamesWithLLM } from './api/fund';
 import packageJson from '../package.json';
+import PcFundTable from './components/PcFundTable';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -560,7 +561,7 @@ export default function HomePage() {
   }, []);
 
   // 计算持仓收益
-  const getHoldingProfit = (fund, holding) => {
+  const getHoldingProfit = useCallback((fund, holding) => {
     if (!holding || !isNumber(holding.share)) return null;
 
     const hasTodayData = fund.jzrq === todayStr;
@@ -634,35 +635,128 @@ export default function HomePage() {
       profitToday,
       profitTotal
     };
-  };
+  }, [isTradingDay, todayStr]);
 
 
   // 过滤和排序后的基金列表
-  const displayFunds = funds
-    .filter(f => {
-      if (currentTab === 'all') return true;
-      if (currentTab === 'fav') return favorites.has(f.code);
-      const group = groups.find(g => g.id === currentTab);
-      return group ? group.codes.includes(f.code) : true;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'yield') {
-        const valA = isNumber(a.estGszzl) ? a.estGszzl : (a.gszzl ?? a.zzl ?? 0);
-        const valB = isNumber(b.estGszzl) ? b.estGszzl : (b.gszzl ?? a.zzl ?? 0);
-        return sortOrder === 'asc' ? valA - valB : valB - valA;
-      }
-      if (sortBy === 'holding') {
-        const pa = getHoldingProfit(a, holdings[a.code]);
-        const pb = getHoldingProfit(b, holdings[b.code]);
-        const valA = pa?.profitTotal ?? Number.NEGATIVE_INFINITY;
-        const valB = pb?.profitTotal ?? Number.NEGATIVE_INFINITY;
-        return sortOrder === 'asc' ? valA - valB : valB - valA;
-      }
-      if (sortBy === 'name') {
-        return sortOrder === 'asc' ? a.name.localeCompare(b.name, 'zh-CN') : b.name.localeCompare(a.name, 'zh-CN');
-      }
-      return 0;
-    });
+  const displayFunds = useMemo(
+    () => funds
+      .filter(f => {
+        if (currentTab === 'all') return true;
+        if (currentTab === 'fav') return favorites.has(f.code);
+        const group = groups.find(g => g.id === currentTab);
+        return group ? group.codes.includes(f.code) : true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'yield') {
+          const valA = isNumber(a.estGszzl) ? a.estGszzl : (a.gszzl ?? a.zzl ?? 0);
+          const valB = isNumber(b.estGszzl) ? b.estGszzl : (b.gszzl ?? a.zzl ?? 0);
+          return sortOrder === 'asc' ? valA - valB : valB - valA;
+        }
+        if (sortBy === 'holding') {
+          const pa = getHoldingProfit(a, holdings[a.code]);
+          const pb = getHoldingProfit(b, holdings[b.code]);
+          const valA = pa?.profitTotal ?? Number.NEGATIVE_INFINITY;
+          const valB = pb?.profitTotal ?? Number.NEGATIVE_INFINITY;
+          return sortOrder === 'asc' ? valA - valB : valB - valA;
+        }
+        if (sortBy === 'name') {
+          return sortOrder === 'asc' ? a.name.localeCompare(b.name, 'zh-CN') : b.name.localeCompare(a.name, 'zh-CN');
+        }
+        return 0;
+      }),
+    [funds, currentTab, favorites, groups, sortBy, sortOrder, holdings, getHoldingProfit],
+  );
+
+  // PC 端表格数据（用于 PcFundTable）
+  const pcFundTableData = useMemo(
+    () =>
+      displayFunds.map((f) => {
+        const hasTodayData = f.jzrq === todayStr;
+        const shouldHideChange = isTradingDay && !hasTodayData;
+        const navOrEstimate = !shouldHideChange
+          ? (f.dwjz ?? '—')
+          : (f.noValuation
+            ? (f.dwjz ?? '—')
+            : (f.estPricedCoverage > 0.05
+              ? (f.estGsz != null ? Number(f.estGsz).toFixed(4) : '—')
+              : (f.gsz ?? '—')));
+
+        const yesterdayChangePercent =
+          f.zzl != null && f.zzl !== ''
+            ? `${f.zzl > 0 ? '+' : ''}${Number(f.zzl).toFixed(2)}%`
+            : '—';
+        const yesterdayChangeValue =
+          f.zzl != null && f.zzl !== '' ? Number(f.zzl) : null;
+        const yesterdayDate = f.jzrq || '-';
+
+        const estimateChangePercent = f.noValuation
+          ? '—'
+          : (f.estPricedCoverage > 0.05
+            ? (f.estGszzl != null
+              ? `${f.estGszzl > 0 ? '+' : ''}${Number(f.estGszzl).toFixed(2)}%`
+              : '—')
+            : (isNumber(f.gszzl)
+              ? `${f.gszzl > 0 ? '+' : ''}${Number(f.gszzl).toFixed(2)}%`
+              : (f.gszzl ?? '—')));
+        const estimateChangeValue = f.noValuation
+          ? null
+          : (f.estPricedCoverage > 0.05
+            ? (isNumber(f.estGszzl) ? Number(f.estGszzl) : null)
+            : (isNumber(f.gszzl) ? Number(f.gszzl) : null));
+        const estimateTime = f.noValuation ? (f.jzrq || '-') : (f.gztime || f.time || '-');
+
+        const holding = holdings[f.code];
+        const profit = getHoldingProfit(f, holding);
+        const amount = profit ? profit.amount : null;
+        const holdingAmount =
+          amount == null ? '未设置' : `¥${amount.toFixed(2)}`;
+        const holdingAmountValue = amount;
+
+        const profitToday = profit ? profit.profitToday : null;
+        const todayProfit =
+          profitToday == null
+            ? ''
+            : `${profitToday > 0 ? '+' : profitToday < 0 ? '-' : ''}¥${Math.abs(profitToday).toFixed(2)}`;
+        const todayProfitValue = profitToday;
+
+        const total = profit ? profit.profitTotal : null;
+        const principal =
+          holding && isNumber(holding.cost) && isNumber(holding.share)
+            ? holding.cost * holding.share
+            : 0;
+        const asPercent = !!percentModes[f.code];
+        const holdingProfit =
+          total == null
+            ? ''
+            : (asPercent && principal > 0
+              ? `${total > 0 ? '+' : total < 0 ? '-' : ''}${Math.abs((total / principal) * 100).toFixed(2)}%`
+              : `${total > 0 ? '+' : total < 0 ? '-' : ''}¥${Math.abs(total).toFixed(2)}`);
+        const holdingProfitValue = total;
+
+        return {
+          rawFund: f,
+          code: f.code,
+          fundName: f.name,
+          isUpdated: f.jzrq === todayStr,
+          navOrEstimate,
+          yesterdayChangePercent,
+          yesterdayChangeValue,
+          yesterdayDate,
+          estimateChangePercent,
+          estimateChangeValue,
+          estimateChangeMuted: f.noValuation,
+          estimateTime,
+          holdingAmount,
+          holdingAmountValue,
+          todayProfit,
+          todayProfitValue,
+          holdingProfit,
+          holdingProfitValue,
+        };
+      }),
+    [displayFunds, holdings, isTradingDay, todayStr, getHoldingProfit, percentModes],
+  );
 
   // 自动滚动选中 Tab 到可视区域
   useEffect(() => {
@@ -3639,159 +3733,47 @@ export default function HomePage() {
                   className={viewMode === 'card' ? 'grid' : 'table-container glass'}
                 >
                   <div className={viewMode === 'card' ? 'grid col-12' : ''} style={viewMode === 'card' ? { gridColumn: 'span 12', gap: 16 } : {}}>
-                    {/* PC 列表：左右分块，左侧 8 列可横向滚动，右侧操作列固定 */}
+                    {/* PC 列表：使用 PcFundTable + 右侧冻结操作列 */}
                     {viewMode === 'list' && !isMobile && (
-                      <div className="table-pc-wrap">
-                        <div className="table-scroll-area">
-                          <div className="table-scroll-area-inner">
-                          <div className="table-header-row table-header-row-scroll">
-                            <div className="table-header-cell">基金名称</div>
-                            <div className="table-header-cell text-right">净值/估值</div>
-                            <div className="table-header-cell text-right">昨日涨跌幅</div>
-                            <div className="table-header-cell text-right">估值涨跌幅</div>
-                            <div className="table-header-cell text-right">持仓金额</div>
-                            <div className="table-header-cell text-right">当日收益</div>
-                            <div className="table-header-cell text-right">持有收益</div>
-                          </div>
-                          <AnimatePresence mode="popLayout">
-                            {displayFunds.map((f) => (
-                              <motion.div
-                                layout="position"
-                                key={f.code}
-                                className="table-row-wrapper"
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.95 }}
-                                transition={{ duration: 0.2 }}
-                                style={{ position: 'relative', overflow: 'hidden' }}
-                                onMouseEnter={() => setHoveredPcRowCode(f.code)}
-                                onMouseLeave={() => setHoveredPcRowCode(null)}
-                              >
-                                <div className={`table-row table-row-scroll ${hoveredPcRowCode === f.code ? 'row-hovered' : ''}`} style={{ background: hoveredPcRowCode === f.code ? 'rgba(255,255,255,0.08)' : 'var(--bg)', position: 'relative', zIndex: 1 }}>
-                                  <div className="table-cell name-cell">
-                                    {currentTab !== 'all' && currentTab !== 'fav' ? (
-                                      <button className="icon-button fav-button" onClick={(e) => { e.stopPropagation(); removeFundFromCurrentGroup(f.code); }} title="从当前分组移除">
-                                        <ExitIcon width="18" height="18" style={{ transform: 'rotate(180deg)' }} />
-                                      </button>
-                                    ) : (
-                                      <button className={`icon-button fav-button ${favorites.has(f.code) ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); toggleFavorite(f.code); }} title={favorites.has(f.code) ? "取消自选" : "添加自选"}>
-                                        <StarIcon width="18" height="18" filled={favorites.has(f.code)} />
-                                      </button>
-                                    )}
-                                    <div className="title-text">
-                                      <span className={`name-text ${f.jzrq === todayStr ? 'updated' : ''}`} title={f.jzrq === todayStr ? "今日净值已更新" : ""}>{f.name}</span>
-                                      <span className="muted code-text">#{f.code}</span>
-                                    </div>
-                                  </div>
-                                  {(() => {
-                                    const hasTodayData = f.jzrq === todayStr;
-                                    const shouldHideChange = isTradingDay && !hasTodayData;
-                                    const valueDisplay = !shouldHideChange ? (f.dwjz ?? '—') : (f.noValuation ? (f.dwjz ?? '—') : (f.estPricedCoverage > 0.05 ? f.estGsz.toFixed(4) : (f.gsz ?? '—')));
-                                    return (
-                                      <div className="table-cell text-right value-cell">
-                                        <span style={{ fontWeight: 700 }}>{valueDisplay}</span>
-                                      </div>
-                                    );
-                                  })()}
-                                  <div className="table-cell text-right change-cell">
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                                      <span className={f.zzl > 0 ? 'up' : f.zzl < 0 ? 'down' : ''} style={{ fontWeight: 700 }}>
-                                        {f.zzl != null && f.zzl !== '' ? `${f.zzl > 0 ? '+' : ''}${Number(f.zzl).toFixed(2)}%` : '—'}
-                                      </span>
-                                      <span className="muted" style={{ fontSize: '12px' }}>
-                                        {f.jzrq || '-'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="table-cell text-right est-change-cell">
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                                      <span className={f.noValuation ? 'muted' : (f.estPricedCoverage > 0.05 ? (f.estGszzl > 0 ? 'up' : f.estGszzl < 0 ? 'down' : '') : (Number(f.gszzl) > 0 ? 'up' : Number(f.gszzl) < 0 ? 'down' : ''))} style={{ fontWeight: 700 }}>
-                                        {f.noValuation ? '—' : (f.estPricedCoverage > 0.05 ? (f.estGszzl != null ? `${f.estGszzl > 0 ? '+' : ''}${Number(f.estGszzl).toFixed(2)}%` : '—') : (isNumber(f.gszzl) ? `${f.gszzl > 0 ? '+' : ''}${Number(f.gszzl).toFixed(2)}%` : (f.gszzl ?? '—')))}
-                                      </span>
-                                      <span className="muted" style={{ fontSize: '12px' }}>
-                                        {f.noValuation ? (f.jzrq || '-') : (f.gztime || f.time || '-')}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  {(() => {
-                                    const holding = holdings[f.code];
-                                    const profit = getHoldingProfit(f, holding);
-                                    const amount = profit ? profit.amount : null;
-                                    if (amount === null) {
-                                      return (
-                                        <div className="table-cell text-right holding-amount-cell" title="设置持仓" onClick={(e) => { e.stopPropagation(); setHoldingModal({ open: true, fund: f }); }}>
-                                          <span className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '12px', cursor: 'pointer' }}>未设置 <SettingsIcon width="12" height="12" /></span>
-                                        </div>
-                                      );
-                                    }
-                                    return (
-                                      <div className="table-cell text-right holding-amount-cell" title="点击设置持仓" onClick={(e) => { e.stopPropagation(); setActionModal({ open: true, fund: f }); }}>
-                                        <span style={{ fontWeight: 700, marginRight: 6 }}>¥{amount.toFixed(2)}</span>
-                                        <button className="icon-button no-hover" onClick={(e) => { e.stopPropagation(); setActionModal({ open: true, fund: f }); }} title="编辑持仓" style={{ border: 'none', width: '28px', height: '28px', marginLeft: -6 }}>
-                                          <SettingsIcon width="14" height="14" />
-                                        </button>
-                                      </div>
-                                    );
-                                  })()}
-                                  {(() => {
-                                    const holding = holdings[f.code];
-                                    const profit = getHoldingProfit(f, holding);
-                                    const profitValue = profit ? profit.profitToday : null;
-                                    const hasProfit = profitValue !== null;
-                                    return (
-                                      <div className="table-cell text-right profit-cell">
-                                        <span className={hasProfit ? (profitValue > 0 ? 'up' : profitValue < 0 ? 'down' : '') : 'muted'} style={{ fontWeight: 700 }}>
-                                          {hasProfit ? `${profitValue > 0 ? '+' : profitValue < 0 ? '-' : ''}¥${Math.abs(profitValue).toFixed(2)}` : ''}
-                                        </span>
-                                      </div>
-                                    );
-                                  })()}
-                                  {(() => {
-                                    const holding = holdings[f.code];
-                                    const profit = getHoldingProfit(f, holding);
-                                    const total = profit ? profit.profitTotal : null;
-                                    const principal = holding && holding.cost && holding.share ? holding.cost * holding.share : 0;
-                                    const asPercent = percentModes[f.code];
-                                    const hasTotal = total !== null;
-                                    const formatted = hasTotal ? (asPercent && principal > 0 ? `${total > 0 ? '+' : total < 0 ? '-' : ''}${Math.abs((total / principal) * 100).toFixed(2)}%` : `${total > 0 ? '+' : total < 0 ? '-' : ''}¥${Math.abs(total).toFixed(2)}`) : '';
-                                    const cls = hasTotal ? (total > 0 ? 'up' : total < 0 ? 'down' : '') : 'muted';
-                                    return (
-                                      <div className="table-cell text-right holding-cell" title="点击切换金额/百分比" onClick={(e) => { e.stopPropagation(); if (hasTotal) setPercentModes(prev => ({ ...prev, [f.code]: !prev[f.code] })); }} style={{ cursor: hasTotal ? 'pointer' : 'default' }}>
-                                        <span className={cls} style={{ fontWeight: 700 }}>{formatted}</span>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
+                        <div className="table-pc-wrap">
+                          <div className="table-scroll-area">
+                            <div className="table-scroll-area-inner">
+                              <PcFundTable
+                                data={pcFundTableData}
+                                refreshing={refreshing}
+                                currentTab={currentTab}
+                                favorites={favorites}
+                                onRemoveFund={(row) => {
+                                  if (refreshing) return;
+                                  if (!row || !row.code) return;
+                                  requestRemoveFund({ code: row.code, name: row.fundName });
+                                }}
+                                onToggleFavorite={(row) => {
+                                  if (!row || !row.code) return;
+                                  toggleFavorite(row.code);
+                                }}
+                                onRemoveFromGroup={(row) => {
+                                  if (!row || !row.code) return;
+                                  removeFundFromCurrentGroup(row.code);
+                                }}
+                                onHoldingAmountClick={(row, meta) => {
+                                  if (!row || !row.code) return;
+                                  const fund = row.rawFund || { code: row.code, name: row.fundName };
+                                  if (meta?.hasHolding) {
+                                    setActionModal({ open: true, fund });
+                                  } else {
+                                    setHoldingModal({ open: true, fund });
+                                  }
+                                }}
+                                onHoldingProfitClick={(row) => {
+                                  if (!row || !row.code) return;
+                                  if (row.holdingProfitValue == null) return;
+                                  setPercentModes(prev => ({ ...prev, [row.code]: !prev[row.code] }));
+                                }}
+                              />
+                            </div>
                           </div>
                         </div>
-                        <div className="table-fixed-col">
-                          <div className="table-header-cell table-header-cell-fixed text-center">操作</div>
-                          <AnimatePresence mode="popLayout">
-                            {displayFunds.map((f) => (
-                              <motion.div
-                                layout="position"
-                                key={f.code}
-                                className={`table-fixed-row ${hoveredPcRowCode === f.code ? 'row-hovered' : ''}`}
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.95 }}
-                                transition={{ duration: 0.2 }}
-                                onMouseEnter={() => setHoveredPcRowCode(f.code)}
-                                onMouseLeave={() => setHoveredPcRowCode(null)}
-                              >
-                                <div className="table-cell text-center action-cell">
-                                  <button className="icon-button danger" onClick={() => !refreshing && requestRemoveFund(f)} title="删除" disabled={refreshing} style={{ width: '28px', height: '28px', opacity: refreshing ? 0.6 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}>
-                                    <TrashIcon width="14" height="14" />
-                                  </button>
-                                </div>
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </div>
-                      </div>
                     )}
                     {viewMode === 'list' && isMobile && (
                       <div className="table-header-row">
@@ -4734,4 +4716,3 @@ export default function HomePage() {
     </div>
   );
 }
-

@@ -804,7 +804,7 @@ input[type="number"] {
 }
 
 .table-header-row-scroll {
-  padding: 16px 24px;
+  padding: 16px 14px;
   background: rgba(255, 255, 255, 0.05);
   border-bottom: 1px solid var(--border);
 }
@@ -844,7 +844,6 @@ input[type="number"] {
   min-height: 52px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--border);
-  transition: background-color 0.2s ease;
 }
 
 .table-row-scroll:hover,
@@ -895,16 +894,15 @@ input[type="number"] {
 
 .table-row {
   display: grid;
-  grid-template-columns: 2.2fr 0.8fr 1fr 1fr 1.2fr 1.2fr 1.2fr;
+  grid-template-columns: 2.2fr 0.8fr 1fr 1fr 1.2fr 1.2fr 1.2fr 0.5fr;
   align-items: center;
   gap: 12px;
-  padding: 12px 24px !important;
+  padding: 12px 14px !important;
   border-bottom: 1px solid var(--border);
-  transition: background-color 0.2s ease;
 }
 
 .table-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: #2a394b;
 }
 
 .table-row:last-child {
@@ -913,10 +911,10 @@ input[type="number"] {
 
 .table-header-row {
   display: grid;
-  grid-template-columns: 2.2fr 0.8fr 1fr 1fr 1.2fr 1.2fr 1.2fr;
+  grid-template-columns: 2.2fr 0.8fr 1fr 1fr 1.2fr 1.2fr 1.2fr 0.5fr;
   gap: 12px;
-  padding: 16px 24px;
-  background: rgba(255, 255, 255, 0.05);
+  padding: 16px 14px;
+  background: #2a394b;
   border-bottom: 1px solid var(--border);
 }
 
