@@ -9,6 +9,7 @@ import { glass } from '@dicebear/collection';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import { isNumber, isString, isPlainObject } from 'lodash';
 import Announcement from "./components/Announcement";
 import { Stat } from "./components/Common";
@@ -48,6 +49,7 @@ import PcFundTable from './components/PcFundTable';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+dayjs.extend(isSameOrAfter);
 
 const DEFAULT_TZ = 'Asia/Shanghai';
 const getBrowserTimeZone = () => {
@@ -306,9 +308,9 @@ export default function HomePage() {
   const isExplicitLoginRef = useRef(false);
 
   // 刷新频率状态
-  const [refreshMs, setRefreshMs] = useState(30000);
+  const [refreshMs, setRefreshMs] = useState(60000);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [tempSeconds, setTempSeconds] = useState(30);
+  const [tempSeconds, setTempSeconds] = useState(60);
 
   // 全局刷新状态
   const [refreshing, setRefreshing] = useState(false);
@@ -2483,7 +2485,7 @@ export default function HomePage() {
 
   const saveSettings = (e) => {
     e?.preventDefault?.();
-    const ms = Math.max(10, Number(tempSeconds)) * 1000;
+    const ms = Math.max(30, Number(tempSeconds)) * 1000;
     setRefreshMs(ms);
     storageHelper.setItem('refreshMs', String(ms));
     setSettingsOpen(false);
