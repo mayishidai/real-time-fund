@@ -249,12 +249,15 @@ export default function PcFundTable({
         )}
         <div className="title-text">
           <span
-            className={`name-text ${isUpdated ? 'updated' : ''}`}
+            className={`name-text`}
             title={isUpdated ? '今日净值已更新' : ''}
           >
             {info.getValue() ?? '—'}
           </span>
-          {code ? <span className="muted code-text">#{code}</span> : null}
+          {code ? <span className="muted code-text">
+            #{code}
+            {isUpdated && <span className="updated-indicator">✓</span>}
+          </span> : null}
         </div>
       </div>
     );

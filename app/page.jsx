@@ -3944,17 +3944,20 @@ export default function HomePage() {
                                   )}
                                   <div className="title-text">
                                     <span
-                                      className={`name-text ${f.jzrq === todayStr ? 'updated' : ''}`}
-                                      title={f.jzrq === todayStr ? "今日净值已更新" : ""}
+                                      className="name-text"
                                     >
                                       {f.name}
                                     </span>
-                                    <span className="muted code-text">
+                                    <span
+                                      className="muted code-text"
+                                      title={f.jzrq === todayStr ? "今日净值已更新" : ""}
+                                    >
                                       {(() => {
                                         const holding = holdings[f.code];
                                         const profit = getHoldingProfit(f, holding);
                                         return profit ? `¥${profit.amount.toFixed(2)}` : `#${f.code}`;
                                       })()}
+                                      {f.jzrq === todayStr && <span className="updated-indicator">✓</span>}
                                     </span>
                                   </div>
                                 </div>
@@ -4134,12 +4137,15 @@ export default function HomePage() {
                                     )}
                                     <div className="title-text">
                                       <span
-                                        className={`name-text ${f.jzrq === todayStr ? 'updated' : ''}`}
+                                        className={`name-text`}
                                         title={f.jzrq === todayStr ? "今日净值已更新" : ""}
                                       >
                                         {f.name}
                                       </span>
-                                      <span className="muted">#{f.code}</span>
+                                      <span className="muted">
+                                        #{f.code}
+                                        {f.jzrq === todayStr && <span className="updated-indicator">✓</span>}
+                                      </span>
                                     </div>
                                   </div>
 

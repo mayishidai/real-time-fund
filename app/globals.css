@@ -958,8 +958,7 @@ input[type="number"] {
   line-height: 1.4;
 }
 
-.name-text.updated::after {
-  content: "✓";
+.updated-indicator {
   display: inline-flex;
   align-items: center;
   justify-content: center;
