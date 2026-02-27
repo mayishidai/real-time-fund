@@ -7,7 +7,8 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { ExitIcon, SettingsIcon, StarIcon, TrashIcon } from './Icons';
+import ConfirmModal from './ConfirmModal';
+import { ExitIcon, ResetIcon, SettingsIcon, StarIcon, TrashIcon } from './Icons';
 
 /**
  * PC 端基金列表表格组件（基于 @tanstack/react-table）
@@ -82,6 +83,12 @@ export default function PcFundTable({
     }
     return stored;
   });
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const handleResetSizing = () => {
+    setColumnSizing({});
+    persistColumnSizing({});
+    setResetConfirmOpen(false);
+  };
   const onRemoveFundRef = useRef(onRemoveFund);
   const onToggleFavoriteRef = useRef(onToggleFavorite);
   const onRemoveFromGroupRef = useRef(onRemoveFromGroup);
@@ -330,7 +337,22 @@ export default function PcFundTable({
       },
       {
         id: 'actions',
-        header: '操作',
+        header: () => (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span>操作</span>
+            <button
+              className="icon-button"
+              onClick={(e) => {
+                e.stopPropagation?.();
+                setResetConfirmOpen(true);
+              }}
+              title="重置列宽"
+              style={{ border: 'none', width: '24px', height: '24px', backgroundColor: 'transparent', color: 'var(--text)' }}
+            >
+              <ResetIcon width="14" height="14"  />
+            </button>
+          </div>
+        ),
         size: 80,
         minSize: 80,
         maxSize: 80,
@@ -597,6 +619,15 @@ export default function PcFundTable({
             <span className="muted">暂无数据</span>
           </div>
         </div>
+      )}
+      {resetConfirmOpen && (
+        <ConfirmModal
+          title="重置列宽"
+          message="是否重置表格列宽为默认值？"
+          onConfirm={handleResetSizing}
+          onCancel={() => setResetConfirmOpen(false)}
+          confirmText="重置"
+        />
       )}
     </>
   );
