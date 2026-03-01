@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { createWorker } from 'tesseract.js';
 import { createAvatar } from '@dicebear/core';
-import { glass } from '@dicebear/collection';
+import { identicon } from '@dicebear/collection';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -15,7 +15,7 @@ import Announcement from "./components/Announcement";
 import { Stat } from "./components/Common";
 import FundTrendChart from "./components/FundTrendChart";
 import FundIntradayChart from "./components/FundIntradayChart";
-import { ChevronIcon, CloseIcon, ExitIcon, EyeIcon, EyeOffIcon, GridIcon, ListIcon, LoginIcon, LogoutIcon, PinIcon, PinOffIcon, PlusIcon, RefreshIcon, SettingsIcon, SortIcon, StarIcon, TrashIcon, UpdateIcon, UserIcon, CameraIcon } from "./components/Icons";
+import { ChevronIcon, CloseIcon, ExitIcon, EyeIcon, EyeOffIcon, GridIcon, ListIcon, LoginIcon, LogoutIcon, MoonIcon, PinIcon, PinOffIcon, PlusIcon, RefreshIcon, SettingsIcon, SortIcon, StarIcon, SunIcon, TrashIcon, UpdateIcon, UserIcon, CameraIcon } from "./components/Icons";
 import AddFundToGroupModal from "./components/AddFundToGroupModal";
 import AddResultModal from "./components/AddResultModal";
 import CloudConfigModal from "./components/CloudConfigModal";
@@ -311,6 +311,21 @@ export default function HomePage() {
   const [refreshMs, setRefreshMs] = useState(60000);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tempSeconds, setTempSeconds] = useState(60);
+  const [containerWidth, setContainerWidth] = useState(1200);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const w = parsed?.pcContainerWidth;
+      const num = Number(w);
+      if (Number.isFinite(num)) {
+        setContainerWidth(Math.min(2000, Math.max(600, num)));
+      }
+    } catch { }
+  }, []);
 
   // 全局刷新状态
   const [refreshing, setRefreshing] = useState(false);
@@ -362,7 +377,7 @@ export default function HomePage() {
 
   const userAvatar = useMemo(() => {
     if (!user?.id) return '';
-    return createAvatar(glass, {
+    return createAvatar(identicon, {
       seed: user.id,
       size: 80
     }).toDataUri();
@@ -391,6 +406,30 @@ export default function HomePage() {
   const filterBarRef = useRef(null);
   const [navbarHeight, setNavbarHeight] = useState(0);
   const [filterBarHeight, setFilterBarHeight] = useState(0);
+  // 主题初始固定为 dark，避免 SSR 与客户端首屏不一致导致 hydration 报错；真实偏好由 useLayoutEffect 在首帧前恢复
+  const [theme, setTheme] = useState('dark');
+  const [showThemeTransition, setShowThemeTransition] = useState(false);
+
+  const handleThemeToggle = useCallback(() => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+    setShowThemeTransition(true);
+  }, []);
+
+  // 首帧前同步主题（与 layout 中脚本设置的 data-theme 一致），减少图标闪烁
+  useLayoutEffect(() => {
+    try {
+      const fromDom = document.documentElement.getAttribute('data-theme');
+      if (fromDom === 'light' || fromDom === 'dark') {
+        setTheme(fromDom);
+        return;
+      }
+      const fromStorage = localStorage.getItem('theme');
+      if (fromStorage === 'light' || fromStorage === 'dark') {
+        setTheme(fromStorage);
+        document.documentElement.setAttribute('data-theme', fromStorage);
+      }
+    } catch { }
+  }, []);
 
   useEffect(() => {
     const updateHeights = () => {
@@ -1816,15 +1855,27 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('funds') || '[]');
-      if (Array.isArray(saved) && saved.length) {
-        const deduped = dedupeByCode(saved);
-        setFunds(deduped);
-        storageHelper.setItem('funds', JSON.stringify(deduped));
-        const codes = Array.from(new Set(deduped.map((f) => f.code)));
-        if (codes.length) refreshAll(codes);
-      }
+    let cancelled = false;
+    const init = async () => {
+      try {
+        // 已登录用户：不在此处调用 refreshAll，等 fetchCloudConfig 完成后由 applyCloudConfig 统一刷新
+        let shouldRefreshFromLocal = true;
+        if (isSupabaseConfigured) {
+          const { data, error } = await supabase.auth.getSession();
+          if (!cancelled && !error && data?.session?.user) {
+            shouldRefreshFromLocal = false;
+          }
+        }
+        if (cancelled) return;
+
+        const saved = JSON.parse(localStorage.getItem('funds') || '[]');
+        if (Array.isArray(saved) && saved.length) {
+          const deduped = dedupeByCode(saved);
+          setFunds(deduped);
+          storageHelper.setItem('funds', JSON.stringify(deduped));
+          const codes = Array.from(new Set(deduped.map((f) => f.code)));
+          if (codes.length && shouldRefreshFromLocal) refreshAll(codes);
+        }
       const savedMs = parseInt(localStorage.getItem('refreshMs') || '30000', 10);
       if (Number.isFinite(savedMs) && savedMs >= 5000) {
         setRefreshMs(savedMs);
@@ -1874,8 +1925,23 @@ export default function HomePage() {
       if (savedViewMode === 'card' || savedViewMode === 'list') {
         setViewMode(savedViewMode);
       }
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        setTheme(savedTheme);
+      }
+      } catch { }
+    };
+    init();
+    return () => { cancelled = true; };
+  }, [isSupabaseConfigured]);
+
+  // 主题同步到 document 并持久化
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('theme', theme);
     } catch { }
-  }, []);
+  }, [theme]);
 
   // 初始化认证状态监听
   useEffect(() => {
@@ -2488,7 +2554,23 @@ export default function HomePage() {
     const ms = Math.max(30, Number(tempSeconds)) * 1000;
     setRefreshMs(ms);
     storageHelper.setItem('refreshMs', String(ms));
+    const w = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
+    setContainerWidth(w);
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      window.localStorage.setItem('customSettings', JSON.stringify({ ...parsed, pcContainerWidth: w }));
+    } catch { }
     setSettingsOpen(false);
+  };
+
+  const handleResetContainerWidth = () => {
+    setContainerWidth(1200);
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      window.localStorage.setItem('customSettings', JSON.stringify({ ...parsed, pcContainerWidth: 1200 }));
+    } catch { }
   };
 
   const importFileRef = useRef(null);
@@ -3250,7 +3332,25 @@ export default function HomePage() {
   };
 
   return (
-    <div className="container content">
+    <div className="container content" style={{ width: containerWidth }}>
+      <AnimatePresence>
+        {showThemeTransition && (
+          <motion.div
+            className="theme-transition-overlay"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              className="theme-transition-circle"
+              initial={{ scale: 0, opacity: 0.5 }}
+              animate={{ scale: 2.5, opacity: 0 }}
+              transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+              onAnimationComplete={() => setShowThemeTransition(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       <Announcement />
       <div className="navbar glass" ref={navbarRef}>
         {refreshing && <div className="loading-bar"></div>}
@@ -3434,7 +3534,9 @@ export default function HomePage() {
               <UpdateIcon width="14" height="14" />
             </div>
           )}
-          <Image unoptimized alt="项目Github地址" src={githubImg} style={{ width: '30px', height: '30px', cursor: 'pointer' }} onClick={() => window.open("https://github.com/hzm0321/real-time-fund")} />
+          <span className="github-icon-wrap">
+            <Image unoptimized alt="项目Github地址" src={githubImg} style={{ width: '30px', height: '30px', cursor: 'pointer' }} onClick={() => window.open("https://github.com/hzm0321/real-time-fund")} />
+          </span>
           {isMobile && (
             <button
               className="icon-button mobile-search-btn"
@@ -3464,6 +3566,14 @@ export default function HomePage() {
           {/*>*/}
           {/*  <SettingsIcon width="18" height="18" />*/}
           {/*</button>*/}
+          <button
+            className="icon-button"
+            aria-label={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}
+            onClick={handleThemeToggle}
+            title={theme === 'dark' ? '亮色' : '暗色'}
+          >
+            {theme === 'dark' ? <SunIcon width="18" height="18" /> : <MoonIcon width="18" height="18" />}
+          </button>
           {/* 用户菜单 */}
           <div className="user-menu-container" ref={userMenuRef}>
             <button
@@ -4313,8 +4423,10 @@ export default function HomePage() {
 
                                   return (
                                     <FundIntradayChart
+                                      key={`${f.code}-intraday-${theme}`}
                                       series={valuationSeries[f.code]}
                                       referenceNav={f.dwjz != null ? Number(f.dwjz) : undefined}
+                                      theme={theme}
                                     />
                                   );
                                 })()}
@@ -4371,10 +4483,12 @@ export default function HomePage() {
                                   )}
                                 </AnimatePresence>
                                 <FundTrendChart
+                                  key={`${f.code}-${theme}`}
                                   code={f.code}
                                   isExpanded={!collapsedTrends.has(f.code)}
                                   onToggleExpand={() => toggleTrendCollapse(f.code)}
                                   transactions={transactions[f.code] || []}
+                                  theme={theme}
                                 />
                               </>
                             )}
@@ -4714,6 +4828,10 @@ export default function HomePage() {
           importFileRef={importFileRef}
           handleImportFileChange={handleImportFileChange}
           importMsg={importMsg}
+          isMobile={isMobile}
+          containerWidth={containerWidth}
+          setContainerWidth={setContainerWidth}
+          onResetContainerWidth={handleResetContainerWidth}
         />
       )}
 

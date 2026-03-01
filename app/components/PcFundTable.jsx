@@ -23,7 +23,25 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import ConfirmModal from './ConfirmModal';
-import { DragIcon, ExitIcon, ResetIcon, SettingsIcon, StarIcon, TrashIcon } from './Icons';
+import PcTableSettingModal from './PcTableSettingModal';
+import { DragIcon, ExitIcon, SettingsIcon, StarIcon, TrashIcon } from './Icons';
+
+const NON_FROZEN_COLUMN_IDS = [
+  'navOrEstimate',
+  'yesterdayChangePercent',
+  'estimateChangePercent',
+  'holdingAmount',
+  'todayProfit',
+  'holdingProfit',
+];
+const COLUMN_HEADERS = {
+  navOrEstimate: '净值/估值',
+  yesterdayChangePercent: '昨日涨跌幅',
+  estimateChangePercent: '估值涨跌幅',
+  holdingAmount: '持仓金额',
+  todayProfit: '当日收益',
+  holdingProfit: '持有收益',
+};
 
 const SortableRowContext = createContext({
   setActivatorNodeRef: null,
@@ -168,6 +186,69 @@ export default function PcFundTable({
     } catch { }
   };
 
+  const getStoredColumnOrder = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const order = parsed?.pcTableColumnOrder;
+      if (!Array.isArray(order) || order.length === 0) return null;
+      const valid = order.filter((id) => NON_FROZEN_COLUMN_IDS.includes(id));
+      const missing = NON_FROZEN_COLUMN_IDS.filter((id) => !valid.includes(id));
+      return [...valid, ...missing];
+    } catch {
+      return null;
+    }
+  };
+
+  const persistColumnOrder = (nextOrder) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      const nextSettings =
+        parsed && typeof parsed === 'object'
+          ? { ...parsed, pcTableColumnOrder: nextOrder }
+          : { pcTableColumnOrder: nextOrder };
+      window.localStorage.setItem('customSettings', JSON.stringify(nextSettings));
+    } catch { }
+  };
+
+  const getStoredColumnVisibility = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const visibility = parsed?.pcTableColumnVisibility;
+      if (!visibility || typeof visibility !== 'object') return null;
+      const normalized = {};
+      NON_FROZEN_COLUMN_IDS.forEach((id) => {
+        const value = visibility[id];
+        if (typeof value === 'boolean') {
+          normalized[id] = value;
+        }
+      });
+      return Object.keys(normalized).length ? normalized : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const persistColumnVisibility = (nextVisibility) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      const nextSettings =
+        parsed && typeof parsed === 'object'
+          ? { ...parsed, pcTableColumnVisibility: nextVisibility }
+          : { pcTableColumnVisibility: nextVisibility };
+      window.localStorage.setItem('customSettings', JSON.stringify(nextSettings));
+    } catch { }
+  };
+
   const [columnSizing, setColumnSizing] = useState(() => {
     const stored = getStoredColumnSizing();
     if (stored.actions) {
@@ -176,11 +257,44 @@ export default function PcFundTable({
     }
     return stored;
   });
+  const [columnOrder, setColumnOrder] = useState(() => getStoredColumnOrder() ?? [...NON_FROZEN_COLUMN_IDS]);
+  const [columnVisibility, setColumnVisibility] = useState(() => {
+    const stored = getStoredColumnVisibility();
+    if (stored) return stored;
+    const allVisible = {};
+    NON_FROZEN_COLUMN_IDS.forEach((id) => {
+      allVisible[id] = true;
+    });
+    return allVisible;
+  });
+  const [settingModalOpen, setSettingModalOpen] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const handleResetSizing = () => {
     setColumnSizing({});
     persistColumnSizing({});
     setResetConfirmOpen(false);
+  };
+
+  const handleResetColumnOrder = () => {
+    const defaultOrder = [...NON_FROZEN_COLUMN_IDS];
+    setColumnOrder(defaultOrder);
+    persistColumnOrder(defaultOrder);
+  };
+
+  const handleResetColumnVisibility = () => {
+    const allVisible = {};
+    NON_FROZEN_COLUMN_IDS.forEach((id) => {
+      allVisible[id] = true;
+    });
+    setColumnVisibility(allVisible);
+    persistColumnVisibility(allVisible);
+  };
+  const handleToggleColumnVisibility = (columnId, visible) => {
+    setColumnVisibility((prev = {}) => {
+      const next = { ...prev, [columnId]: visible };
+      persistColumnVisibility(next);
+      return next;
+    });
   };
   const onRemoveFundRef = useRef(onRemoveFund);
   const onToggleFavoriteRef = useRef(onToggleFavorite);
@@ -463,12 +577,12 @@ export default function PcFundTable({
               className="icon-button"
               onClick={(e) => {
                 e.stopPropagation?.();
-                setResetConfirmOpen(true);
+                setSettingModalOpen(true);
               }}
-              title="重置列宽"
+              title="个性化设置"
               style={{ border: 'none', width: '24px', height: '24px', backgroundColor: 'transparent', color: 'var(--text)' }}
             >
-              <ResetIcon width="14" height="14" />
+              <SettingsIcon width="14" height="14" />
             </button>
           </div>
         ),
@@ -531,6 +645,22 @@ export default function PcFundTable({
     },
     state: {
       columnSizing,
+      columnOrder,
+      columnVisibility,
+    },
+    onColumnOrderChange: (updater) => {
+      setColumnOrder((prev) => {
+        const next = typeof updater === 'function' ? updater(prev) : prev;
+        persistColumnOrder(next);
+        return next;
+      });
+    },
+    onColumnVisibilityChange: (updater) => {
+      setColumnVisibility((prev = {}) => {
+        const next = typeof updater === 'function' ? updater(prev) : (updater || {});
+        persistColumnVisibility(next);
+        return next;
+      });
     },
     initialState: {
       columnPinning: {
@@ -564,7 +694,7 @@ export default function PcFundTable({
       left: isLeft ? `${column.getStart('left')}px` : undefined,
       right: isRight ? `${column.getAfter('right')}px` : undefined,
       zIndex: isHeader ? 11 : 10,
-      backgroundColor: isHeader ? '#2a394b' : 'var(--row-bg)',
+      backgroundColor: isHeader ? 'var(--table-pinned-header-bg)' : 'var(--row-bg)',
       boxShadow: 'none',
       textAlign: isNameColumn ? 'left' : 'center',
       justifyContent: isNameColumn ? 'flex-start' : 'center',
@@ -572,14 +702,14 @@ export default function PcFundTable({
   };
 
   return (
-    <>
+    <div className="pc-fund-table">
       <style>{`
         .table-row-scroll {
           --row-bg: var(--bg);
           background-color: var(--row-bg);
         }
         .table-row-scroll:hover {
-          --row-bg: #2a394b;
+          --row-bg: var(--table-row-hover-bg);
         }
 
         /* 覆盖 grid 布局为 flex 以支持动态列宽 */
@@ -752,6 +882,20 @@ export default function PcFundTable({
           confirmText="重置"
         />
       )}
-    </>
+      <PcTableSettingModal
+        open={settingModalOpen}
+        onClose={() => setSettingModalOpen(false)}
+        columns={columnOrder.map((id) => ({ id, header: COLUMN_HEADERS[id] ?? id }))}
+        onColumnReorder={(newOrder) => {
+          setColumnOrder(newOrder);
+          persistColumnOrder(newOrder);
+        }}
+        columnVisibility={columnVisibility}
+        onToggleColumnVisibility={handleToggleColumnVisibility}
+        onResetColumnOrder={handleResetColumnOrder}
+        onResetColumnVisibility={handleResetColumnVisibility}
+        onResetSizing={() => setResetConfirmOpen(true)}
+      />
+    </div>
   );
 }
