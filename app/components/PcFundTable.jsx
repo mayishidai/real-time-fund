@@ -23,19 +23,22 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import ConfirmModal from './ConfirmModal';
+import FitText from './FitText';
 import PcTableSettingModal from './PcTableSettingModal';
 import { DragIcon, ExitIcon, SettingsIcon, StarIcon, TrashIcon } from './Icons';
 
 const NON_FROZEN_COLUMN_IDS = [
-  'navOrEstimate',
   'yesterdayChangePercent',
   'estimateChangePercent',
   'holdingAmount',
   'todayProfit',
   'holdingProfit',
+  'latestNav',
+  'estimateNav',
 ];
 const COLUMN_HEADERS = {
-  navOrEstimate: '净值/估值',
+  latestNav: '最新净值',
+  estimateNav: '估算净值',
   yesterdayChangePercent: '昨日涨跌幅',
   estimateChangePercent: '估值涨跌幅',
   holdingAmount: '持仓金额',
@@ -98,7 +101,8 @@ function SortableRow({ row, children, isTableDragging, disabled }) {
  *   {
  *     fundName: string;             // 基金名称
  *     code?: string;                // 基金代码（可选，只用于展示在名称下方）
- *     navOrEstimate: string|number; // 净值/估值
+ *     latestNav: string|number;     // 最新净值
+ *     estimateNav: string|number;   // 估算净值
  *     yesterdayChangePercent: string|number; // 昨日涨跌幅
  *     estimateChangePercent: string|number;  // 估值涨跌幅
  *     holdingAmount: string|number;         // 持仓金额
@@ -111,7 +115,6 @@ function SortableRow({ row, children, isTableDragging, disabled }) {
  * @param {(row: any) => void} [props.onToggleFavorite] - 添加/取消自选
  * @param {(row: any) => void} [props.onRemoveFromGroup] - 从当前分组移除
  * @param {(row: any, meta: { hasHolding: boolean }) => void} [props.onHoldingAmountClick] - 点击持仓金额
- * @param {(row: any) => void} [props.onHoldingProfitClick] - 点击持有收益
  * @param {boolean} [props.refreshing] - 是否处于刷新状态（控制删除按钮禁用态）
  */
 export default function PcFundTable({
@@ -122,10 +125,11 @@ export default function PcFundTable({
   onToggleFavorite,
   onRemoveFromGroup,
   onHoldingAmountClick,
-  onHoldingProfitClick,
+  onHoldingProfitClick, // 保留以兼容调用方，表格内已不再使用点击切换
   refreshing = false,
   sortBy = 'default',
   onReorder,
+  onCustomSettingsChange,
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -157,128 +161,160 @@ export default function PcFundTable({
     }
     setActiveId(null);
   };
-  const getStoredColumnSizing = () => {
+  const groupKey = currentTab ?? 'all';
+
+  const getCustomSettingsWithMigration = () => {
     if (typeof window === 'undefined') return {};
     try {
       const raw = window.localStorage.getItem('customSettings');
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      const sizing = parsed?.pcTableColumns;
-      if (!sizing || typeof sizing !== 'object') return {};
-      return Object.fromEntries(
-        Object.entries(sizing).filter(([, value]) => Number.isFinite(value)),
-      );
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== 'object') return {};
+      if (parsed.pcTableColumnOrder != null || parsed.pcTableColumnVisibility != null || parsed.pcTableColumns != null || parsed.mobileTableColumnOrder != null || parsed.mobileTableColumnVisibility != null) {
+        const all = {
+          ...(parsed.all && typeof parsed.all === 'object' ? parsed.all : {}),
+          pcTableColumnOrder: parsed.pcTableColumnOrder,
+          pcTableColumnVisibility: parsed.pcTableColumnVisibility,
+          pcTableColumns: parsed.pcTableColumns,
+          mobileTableColumnOrder: parsed.mobileTableColumnOrder,
+          mobileTableColumnVisibility: parsed.mobileTableColumnVisibility,
+        };
+        delete parsed.pcTableColumnOrder;
+        delete parsed.pcTableColumnVisibility;
+        delete parsed.pcTableColumns;
+        delete parsed.mobileTableColumnOrder;
+        delete parsed.mobileTableColumnVisibility;
+        parsed.all = all;
+        window.localStorage.setItem('customSettings', JSON.stringify(parsed));
+      }
+      return parsed;
     } catch {
       return {};
     }
   };
 
-  const persistColumnSizing = (nextSizing) => {
-    if (typeof window === 'undefined') return;
-    try {
-      const raw = window.localStorage.getItem('customSettings');
-      const parsed = raw ? JSON.parse(raw) : {};
-      const nextSettings =
-        parsed && typeof parsed === 'object'
-          ? { ...parsed, pcTableColumns: nextSizing }
-          : { pcTableColumns: nextSizing };
-      window.localStorage.setItem('customSettings', JSON.stringify(nextSettings));
-    } catch { }
-  };
-
-  const getStoredColumnOrder = () => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const raw = window.localStorage.getItem('customSettings');
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      const order = parsed?.pcTableColumnOrder;
-      if (!Array.isArray(order) || order.length === 0) return null;
-      const valid = order.filter((id) => NON_FROZEN_COLUMN_IDS.includes(id));
-      const missing = NON_FROZEN_COLUMN_IDS.filter((id) => !valid.includes(id));
-      return [...valid, ...missing];
-    } catch {
-      return null;
+  const buildPcConfigFromGroup = (group) => {
+    if (!group || typeof group !== 'object') return null;
+    const sizing = group.pcTableColumns;
+    const sizingObj = sizing && typeof sizing === 'object'
+      ? Object.fromEntries(Object.entries(sizing).filter(([, v]) => Number.isFinite(v)))
+      : {};
+    if (sizingObj.actions) {
+      const { actions, ...rest } = sizingObj;
+      Object.assign(sizingObj, rest);
+      delete sizingObj.actions;
     }
+    const order = Array.isArray(group.pcTableColumnOrder) && group.pcTableColumnOrder.length > 0
+      ? group.pcTableColumnOrder
+      : null;
+    const visibility = group.pcTableColumnVisibility && typeof group.pcTableColumnVisibility === 'object'
+      ? group.pcTableColumnVisibility
+      : null;
+    return { sizing: sizingObj, order, visibility };
   };
 
-  const persistColumnOrder = (nextOrder) => {
-    if (typeof window === 'undefined') return;
-    try {
-      const raw = window.localStorage.getItem('customSettings');
-      const parsed = raw ? JSON.parse(raw) : {};
-      const nextSettings =
-        parsed && typeof parsed === 'object'
-          ? { ...parsed, pcTableColumnOrder: nextOrder }
-          : { pcTableColumnOrder: nextOrder };
-      window.localStorage.setItem('customSettings', JSON.stringify(nextSettings));
-    } catch { }
-  };
-
-  const getStoredColumnVisibility = () => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const raw = window.localStorage.getItem('customSettings');
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      const visibility = parsed?.pcTableColumnVisibility;
-      if (!visibility || typeof visibility !== 'object') return null;
-      const normalized = {};
-      NON_FROZEN_COLUMN_IDS.forEach((id) => {
-        const value = visibility[id];
-        if (typeof value === 'boolean') {
-          normalized[id] = value;
-        }
-      });
-      return Object.keys(normalized).length ? normalized : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const persistColumnVisibility = (nextVisibility) => {
-    if (typeof window === 'undefined') return;
-    try {
-      const raw = window.localStorage.getItem('customSettings');
-      const parsed = raw ? JSON.parse(raw) : {};
-      const nextSettings =
-        parsed && typeof parsed === 'object'
-          ? { ...parsed, pcTableColumnVisibility: nextVisibility }
-          : { pcTableColumnVisibility: nextVisibility };
-      window.localStorage.setItem('customSettings', JSON.stringify(nextSettings));
-    } catch { }
-  };
-
-  const [columnSizing, setColumnSizing] = useState(() => {
-    const stored = getStoredColumnSizing();
-    if (stored.actions) {
-      const { actions, ...rest } = stored;
-      return rest;
-    }
-    return stored;
+  const getDefaultPcGroupConfig = () => ({
+    order: [...NON_FROZEN_COLUMN_IDS],
+    visibility: null,
+    sizing: {},
   });
-  const [columnOrder, setColumnOrder] = useState(() => getStoredColumnOrder() ?? [...NON_FROZEN_COLUMN_IDS]);
-  const [columnVisibility, setColumnVisibility] = useState(() => {
-    const stored = getStoredColumnVisibility();
-    if (stored) return stored;
-    const allVisible = {};
-    NON_FROZEN_COLUMN_IDS.forEach((id) => {
-      allVisible[id] = true;
+
+  const getInitialConfigByGroup = () => {
+    const parsed = getCustomSettingsWithMigration();
+    const byGroup = {};
+    Object.keys(parsed).forEach((k) => {
+      if (k === 'pcContainerWidth') return;
+      const group = parsed[k];
+      const pc = buildPcConfigFromGroup(group);
+      if (pc) {
+        byGroup[k] = {
+          pcTableColumnOrder: pc.order ? (() => {
+            const valid = pc.order.filter((id) => NON_FROZEN_COLUMN_IDS.includes(id));
+            const missing = NON_FROZEN_COLUMN_IDS.filter((id) => !valid.includes(id));
+            return [...valid, ...missing];
+          })() : null,
+          pcTableColumnVisibility: pc.visibility,
+          pcTableColumns: Object.keys(pc.sizing).length ? pc.sizing : null,
+        };
+      }
     });
+    return byGroup;
+  };
+
+  const [configByGroup, setConfigByGroup] = useState(getInitialConfigByGroup);
+
+  const currentGroupPc = configByGroup[groupKey];
+  const defaultPc = getDefaultPcGroupConfig();
+  const columnOrder = (() => {
+    const order = currentGroupPc?.pcTableColumnOrder ?? defaultPc.order;
+    if (!Array.isArray(order) || order.length === 0) return [...NON_FROZEN_COLUMN_IDS];
+    const valid = order.filter((id) => NON_FROZEN_COLUMN_IDS.includes(id));
+    const missing = NON_FROZEN_COLUMN_IDS.filter((id) => !valid.includes(id));
+    return [...valid, ...missing];
+  })();
+  const columnVisibility = (() => {
+    const vis = currentGroupPc?.pcTableColumnVisibility ?? null;
+    if (vis && typeof vis === 'object' && Object.keys(vis).length > 0) return vis;
+    const allVisible = {};
+    NON_FROZEN_COLUMN_IDS.forEach((id) => { allVisible[id] = true; });
     return allVisible;
-  });
+  })();
+  const columnSizing = (() => {
+    const s = currentGroupPc?.pcTableColumns;
+    if (s && typeof s === 'object') {
+      const out = Object.fromEntries(Object.entries(s).filter(([, v]) => Number.isFinite(v)));
+      if (out.actions) {
+        const { actions, ...rest } = out;
+        return rest;
+      }
+      return out;
+    }
+    return {};
+  })();
+
+  const persistPcGroupConfig = (updates) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      const group = parsed[groupKey] && typeof parsed[groupKey] === 'object' ? { ...parsed[groupKey] } : {};
+      if (updates.pcTableColumnOrder !== undefined) group.pcTableColumnOrder = updates.pcTableColumnOrder;
+      if (updates.pcTableColumnVisibility !== undefined) group.pcTableColumnVisibility = updates.pcTableColumnVisibility;
+      if (updates.pcTableColumns !== undefined) group.pcTableColumns = updates.pcTableColumns;
+      parsed[groupKey] = group;
+      window.localStorage.setItem('customSettings', JSON.stringify(parsed));
+      setConfigByGroup((prev) => ({ ...prev, [groupKey]: { ...prev[groupKey], ...updates } }));
+      onCustomSettingsChange?.();
+    } catch { }
+  };
+
+  const setColumnOrder = (nextOrderOrUpdater) => {
+    const next = typeof nextOrderOrUpdater === 'function'
+      ? nextOrderOrUpdater(columnOrder)
+      : nextOrderOrUpdater;
+    persistPcGroupConfig({ pcTableColumnOrder: next });
+  };
+  const setColumnVisibility = (nextOrUpdater) => {
+    const next = typeof nextOrUpdater === 'function'
+      ? nextOrUpdater(columnVisibility)
+      : nextOrUpdater;
+    persistPcGroupConfig({ pcTableColumnVisibility: next });
+  };
+  const setColumnSizing = (nextOrUpdater) => {
+    const next = typeof nextOrUpdater === 'function'
+      ? nextOrUpdater(columnSizing)
+      : nextOrUpdater;
+    const { actions, ...rest } = next || {};
+    persistPcGroupConfig({ pcTableColumns: rest || {} });
+  };
   const [settingModalOpen, setSettingModalOpen] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const handleResetSizing = () => {
     setColumnSizing({});
-    persistColumnSizing({});
     setResetConfirmOpen(false);
   };
 
   const handleResetColumnOrder = () => {
-    const defaultOrder = [...NON_FROZEN_COLUMN_IDS];
-    setColumnOrder(defaultOrder);
-    persistColumnOrder(defaultOrder);
+    setColumnOrder([...NON_FROZEN_COLUMN_IDS]);
   };
 
   const handleResetColumnVisibility = () => {
@@ -287,33 +323,25 @@ export default function PcFundTable({
       allVisible[id] = true;
     });
     setColumnVisibility(allVisible);
-    persistColumnVisibility(allVisible);
   };
   const handleToggleColumnVisibility = (columnId, visible) => {
-    setColumnVisibility((prev = {}) => {
-      const next = { ...prev, [columnId]: visible };
-      persistColumnVisibility(next);
-      return next;
-    });
+    setColumnVisibility((prev = {}) => ({ ...prev, [columnId]: visible }));
   };
   const onRemoveFundRef = useRef(onRemoveFund);
   const onToggleFavoriteRef = useRef(onToggleFavorite);
   const onRemoveFromGroupRef = useRef(onRemoveFromGroup);
   const onHoldingAmountClickRef = useRef(onHoldingAmountClick);
-  const onHoldingProfitClickRef = useRef(onHoldingProfitClick);
 
   useEffect(() => {
     onRemoveFundRef.current = onRemoveFund;
     onToggleFavoriteRef.current = onToggleFavorite;
     onRemoveFromGroupRef.current = onRemoveFromGroup;
     onHoldingAmountClickRef.current = onHoldingAmountClick;
-    onHoldingProfitClickRef.current = onHoldingProfitClick;
   }, [
     onRemoveFund,
     onToggleFavorite,
     onRemoveFromGroup,
     onHoldingAmountClick,
-    onHoldingProfitClick,
   ]);
 
   const FundNameCell = ({ info }) => {
@@ -346,6 +374,7 @@ export default function PcFundTable({
               onRemoveFromGroupRef.current?.(original);
             }}
             title="从小分组移除"
+            style={{ backgroundColor: 'transparent'}}
           >
             <ExitIcon width="18" height="18" style={{ transform: 'rotate(180deg)' }} />
           </button>
@@ -392,12 +421,29 @@ export default function PcFundTable({
         },
       },
       {
-        accessorKey: 'navOrEstimate',
-        header: '净值/估值',
+        accessorKey: 'latestNav',
+        header: '最新净值',
         size: 100,
         minSize: 80,
         cell: (info) => (
-          <span style={{ fontWeight: 700 }}>{info.getValue() ?? '—'}</span>
+          <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10}>
+            {info.getValue() ?? '—'}
+          </FitText>
+        ),
+        meta: {
+          align: 'right',
+          cellClassName: 'value-cell',
+        },
+      },
+      {
+        accessorKey: 'estimateNav',
+        header: '估算净值',
+        size: 100,
+        minSize: 80,
+        cell: (info) => (
+          <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10}>
+            {info.getValue() ?? '—'}
+          </FitText>
         ),
         meta: {
           align: 'right',
@@ -416,9 +462,9 @@ export default function PcFundTable({
           const cls = value > 0 ? 'up' : value < 0 ? 'down' : '';
           return (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0 }}>
-              <span className={cls} style={{ fontWeight: 700 }}>
+              <FitText className={cls} style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10} as="div">
                 {info.getValue() ?? '—'}
-              </span>
+              </FitText>
               <span className="muted" style={{ fontSize: '11px' }}>
                 {date}
               </span>
@@ -443,9 +489,9 @@ export default function PcFundTable({
           const cls = isMuted ? 'muted' : value > 0 ? 'up' : value < 0 ? 'down' : '';
           return (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0 }}>
-              <span className={cls} style={{ fontWeight: 700 }}>
+              <FitText className={cls} style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10} as="div">
                 {info.getValue() ?? '—'}
-              </span>
+              </FitText>
               <span className="muted" style={{ fontSize: '11px' }}>
                 {time}
               </span>
@@ -490,13 +536,17 @@ export default function PcFundTable({
           return (
             <div
               title="点击设置持仓"
-              style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', width: '100%', minWidth: 0 }}
               onClick={(e) => {
                 e.stopPropagation?.();
                 onHoldingAmountClickRef.current?.(original, { hasHolding: true });
               }}
             >
-              <span style={{ fontWeight: 700, marginRight: 6 }}>{info.getValue() ?? '—'}</span>
+              <div style={{ flex: '1 1 0', minWidth: 0 }}>
+                <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10}>
+                  {info.getValue() ?? '—'}
+                </FitText>
+              </div>
               <button
                 className="icon-button no-hover"
                 onClick={(e) => {
@@ -504,7 +554,7 @@ export default function PcFundTable({
                   onHoldingAmountClickRef.current?.(original, { hasHolding: true });
                 }}
                 title="编辑持仓"
-                style={{ border: 'none', width: '28px', height: '28px', marginLeft: -6 }}
+                style={{ border: 'none', width: '28px', height: '28px', marginLeft: 4, flexShrink: 0, backgroundColor: 'transparent' }}
               >
                 <SettingsIcon width="14" height="14" />
               </button>
@@ -526,10 +576,21 @@ export default function PcFundTable({
           const value = original.todayProfitValue;
           const hasProfit = value != null;
           const cls = hasProfit ? (value > 0 ? 'up' : value < 0 ? 'down' : '') : 'muted';
+          const amountStr = hasProfit ? (info.getValue() ?? '') : '—';
+          const percentStr = original.todayProfitPercent ?? '';
           return (
-            <span className={cls} style={{ fontWeight: 700 }}>
-              {hasProfit ? (info.getValue() ?? '') : ''}
-            </span>
+            <div style={{ width: '100%' }}>
+              <FitText className={cls} style={{ fontWeight: 700, display: 'block' }} maxFontSize={14} minFontSize={10}>
+                {amountStr}
+              </FitText>
+              {percentStr ? (
+                <span className={`${cls} today-profit-percent`} style={{ display: 'block', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
+                  <FitText maxFontSize={11} minFontSize={9}>
+                    {percentStr}
+                  </FitText>
+                </span>
+              ) : null}
+            </div>
           );
         },
         meta: {
@@ -547,19 +608,20 @@ export default function PcFundTable({
           const value = original.holdingProfitValue;
           const hasTotal = value != null;
           const cls = hasTotal ? (value > 0 ? 'up' : value < 0 ? 'down' : '') : 'muted';
+          const amountStr = hasTotal ? (info.getValue() ?? '') : '—';
+          const percentStr = original.holdingProfitPercent ?? '';
           return (
-            <div
-              title="点击切换金额/百分比"
-              style={{ cursor: hasTotal ? 'pointer' : 'default' }}
-              onClick={(e) => {
-                if (!hasTotal) return;
-                e.stopPropagation?.();
-                onHoldingProfitClickRef.current?.(original);
-              }}
-            >
-              <span className={cls} style={{ fontWeight: 700 }}>
-                {hasTotal ? (info.getValue() ?? '') : ''}
-              </span>
+            <div style={{ width: '100%' }}>
+              <FitText className={cls} style={{ fontWeight: 700, display: 'block' }} maxFontSize={14} minFontSize={10}>
+                {amountStr}
+              </FitText>
+              {percentStr ? (
+                <span className={`${cls} holding-profit-percent`} style={{ display: 'block', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
+                  <FitText maxFontSize={11} minFontSize={9}>
+                    {percentStr}
+                  </FitText>
+                </span>
+              ) : null}
             </div>
           );
         },
@@ -606,7 +668,7 @@ export default function PcFundTable({
           };
 
           return (
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div className="row" style={{ justifyContent: 'center', gap: 4 }}>
               <button
                 className="icon-button danger"
                 onClick={handleClick}
@@ -639,7 +701,6 @@ export default function PcFundTable({
       setColumnSizing((prev) => {
         const next = typeof updater === 'function' ? updater(prev) : updater;
         const { actions, ...rest } = next || {};
-        persistColumnSizing(rest || {});
         return rest || {};
       });
     },
@@ -649,18 +710,10 @@ export default function PcFundTable({
       columnVisibility,
     },
     onColumnOrderChange: (updater) => {
-      setColumnOrder((prev) => {
-        const next = typeof updater === 'function' ? updater(prev) : prev;
-        persistColumnOrder(next);
-        return next;
-      });
+      setColumnOrder(updater);
     },
     onColumnVisibilityChange: (updater) => {
-      setColumnVisibility((prev = {}) => {
-        const next = typeof updater === 'function' ? updater(prev) : (updater || {});
-        persistColumnVisibility(next);
-        return next;
-      });
+      setColumnVisibility(updater);
     },
     initialState: {
       columnPinning: {
@@ -832,6 +885,8 @@ export default function PcFundTable({
                     const columnId = cell.column.id || cell.column.columnDef?.accessorKey;
                     const isNameColumn = columnId === 'fundName';
                     const rightAlignedColumns = new Set([
+                      'latestNav',
+                      'estimateNav',
                       'yesterdayChangePercent',
                       'estimateChangePercent',
                       'holdingAmount',
@@ -888,7 +943,6 @@ export default function PcFundTable({
         columns={columnOrder.map((id) => ({ id, header: COLUMN_HEADERS[id] ?? id }))}
         onColumnReorder={(newOrder) => {
           setColumnOrder(newOrder);
-          persistColumnOrder(newOrder);
         }}
         columnVisibility={columnVisibility}
         onToggleColumnVisibility={handleToggleColumnVisibility}
