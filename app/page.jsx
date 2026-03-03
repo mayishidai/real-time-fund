@@ -343,6 +343,7 @@ export default function HomePage() {
   const [favorites, setFavorites] = useState(new Set());
   const [groups, setGroups] = useState([]); // [{ id, name, codes: [] }]
   const [currentTab, setCurrentTab] = useState('all');
+  const hasLocalTabInitRef = useRef(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [groupManageOpen, setGroupManageOpen] = useState(false);
   const [addFundToGroupOpen, setAddFundToGroupOpen] = useState(false);
@@ -1971,6 +1972,17 @@ export default function HomePage() {
       if (Array.isArray(savedGroups)) {
         setGroups(savedGroups);
       }
+      // 读取用户上次选择的分组（仅本地存储，不同步云端）
+      const savedTab = localStorage.getItem('currentTab');
+      if (
+        savedTab === 'all' ||
+        savedTab === 'fav' ||
+        (savedTab && Array.isArray(savedGroups) && savedGroups.some((g) => g?.id === savedTab))
+      ) {
+        setCurrentTab(savedTab);
+      } else if (savedTab) {
+        setCurrentTab('all');
+      }
       // 加载持仓数据
       const savedHoldings = JSON.parse(localStorage.getItem('holdings') || '{}');
       if (isPlainObject(savedHoldings)) {
@@ -1993,10 +2005,21 @@ export default function HomePage() {
         setTheme(savedTheme);
       }
       } catch { }
+      if (!cancelled) {
+        hasLocalTabInitRef.current = true;
+      }
     };
     init();
     return () => { cancelled = true; };
   }, [isSupabaseConfigured]);
+
+  // 记录用户当前选择的分组（仅本地存储，不同步云端）
+  useEffect(() => {
+    if (!hasLocalTabInitRef.current) return;
+    try {
+      localStorage.setItem('currentTab', currentTab);
+    } catch { }
+  }, [currentTab]);
 
   // 主题同步到 document 并持久化
   useEffect(() => {
