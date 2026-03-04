@@ -348,6 +348,7 @@ export default function PcFundTable({
     const original = info.row.original || {};
     const code = original.code;
     const isUpdated = original.isUpdated;
+    const hasDca = original.hasDca;
     const isFavorites = favorites?.has?.(code);
     const isGroupTab = currentTab && currentTab !== 'all' && currentTab !== 'fav';
     const rowContext = useContext(SortableRowContext);
@@ -399,6 +400,7 @@ export default function PcFundTable({
           </span>
           {code ? <span className="muted code-text">
             #{code}
+            {hasDca && <span className="dca-indicator">定</span>}
             {isUpdated && <span className="updated-indicator">✓</span>}
           </span> : null}
         </div>

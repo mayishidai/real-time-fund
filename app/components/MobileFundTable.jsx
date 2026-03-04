@@ -310,6 +310,7 @@ export default function MobileFundTable({
     const original = info.row.original || {};
     const code = original.code;
     const isUpdated = original.isUpdated;
+    const hasDca = original.hasDca;
     const hasHoldingAmount = original.holdingAmountValue != null;
     const holdingAmountDisplay = hasHoldingAmount ? (original.holdingAmount ?? '—') : null;
     const isFavorites = favorites?.has?.(code);
@@ -365,6 +366,7 @@ export default function MobileFundTable({
               }}
             >
               {holdingAmountDisplay}
+              {hasDca && <span className="dca-indicator">定</span>}
               {isUpdated && <span className="updated-indicator">✓</span>}
             </span>
           ) : code ? (
@@ -386,6 +388,7 @@ export default function MobileFundTable({
               }}
             >
               #{code}
+              {hasDca && <span className="dca-indicator">定</span>}
               {isUpdated && <span className="updated-indicator">✓</span>}
             </span>
           ) : null}
