@@ -669,72 +669,6 @@ export const fetchFundPingzhongdata = async (fundCode, { cacheTime = 60 * 60 * 1
   }
 };
 
-// 使用智谱 GLM 从 OCR 文本中抽取基金名称
-export const extractFundNamesWithLLM = async (ocrText) => {
-  const apiKey = '8df8ccf74a174722847c83b7e222f2af.4A39rJvUeBVDmef1';
-  if (!apiKey || !ocrText) return [];
-
-  try {
-    const models = ['glm-4.5-flash', 'glm-4.7-flash'];
-    const model = models[Math.floor(Math.random() * models.length)];
-
-    const resp = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'user',
-            content:
-              '你是一个基金 OCR 文本解析助手。' +
-              '从下面的 OCR 文本中抽取其中出现的「基金名称列表」。' +
-              '要求：1）基金名称一般为中文，中间不能有空字符串,可包含部分英文或括号' +
-              '2）名称后面通常会跟着金额或持有金额（数字，可能带千分位逗号和小数）；' +
-              '3）忽略无关信息，只返回你判断为基金名称的字符串；' +
-              '4）去重后输出。输出格式：严格返回 JSON，如 {"fund_names": ["基金名称1","基金名称2"]}，不要输出任何多余说明',
-          },
-          {
-            role: 'user',
-            content: String(ocrText),
-          },
-        ],
-        temperature: 0.2,
-        max_tokens: 1024,
-        thinking: {
-          type: 'disabled',
-        },
-      }),
-    });
-
-    if (!resp.ok) {
-      return [];
-    }
-
-    const data = await resp.json();
-    let content = data?.choices?.[0]?.message?.content?.match(/\{[\s\S]*?\}/)?.[0];
-    if (!isString(content)) return [];
-
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      return [];
-    }
-
-    const names = parsed?.fund_names;
-    if (!Array.isArray(names)) return [];
-    return names
-      .map((n) => (isString(n) ? n.trim().replaceAll(' ','') : ''))
-      .filter(Boolean);
-  } catch (e) {
-    return [];
-  }
-};
-
 export const fetchFundHistory = async (code, range = '1m') => {
   if (typeof window === 'undefined') return [];
 
@@ -775,4 +709,37 @@ export const fetchFundHistory = async (code, range = '1m') => {
     return [];
   }
   return [];
+};
+
+export const parseFundTextWithLLM = async (text) => {
+  const apiKey = 'sk-a72c4e279bc62a03cc105be6263d464c';
+  if (!apiKey || !text) return null;
+
+  try {
+    const response = await fetch('https://apis.iflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'qwen3-max',
+        messages: [
+          { role: 'system', content: "你是一个基金文本解析助手。请从提供的OCR文本中执行以下任务：\n抽取所有基金信息，包括：基金名称：中文字符串（可含英文或括号），名称后常跟随金额数字。基金代码：6位数字（如果存在）。持有金额：数字格式（可能含千分位逗号或小数，如果存在）。持有收益：数字格式（可能含千分位逗号或小数，如果存在）。忽略无关文本。输出格式：以JSON数组形式返回结果，每个基金信息为一个对象，包含以下字段：基金名称（必填，字符串）基金代码（可选，字符串，不存在时为空字符串）持有金额（可选，字符串，不存在时为空字符串）持有收益（可选，字符串，不存在时为空字符串）示例输出：[{'fundName':'华夏成长混合','fundCode':'000001','holdAmounts':'50,000.00','holdGains':'2,500.00'},{'fundName':'易方达消费行业','fundCode':'','holdAmounts':'10,000.00','holdGains':'}]。除了示例输出的内容外，不要输出任何多余内容"},
+          { role: 'user', content: text }
+        ],
+        temperature: 0.3,
+        max_tokens: 2000
+      })
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    return data?.choices?.[0]?.message?.content || null;
+  } catch (e) {
+    return null;
+  }
 };

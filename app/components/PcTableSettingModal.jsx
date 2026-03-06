@@ -18,6 +18,8 @@ import { CloseIcon, DragIcon, ResetIcon, SettingsIcon } from './Icons';
  * @param {() => void} props.onResetColumnOrder - 重置列顺序回调，需二次确认
  * @param {() => void} props.onResetColumnVisibility - 重置列显示/隐藏回调
  * @param {() => void} props.onResetSizing - 点击重置列宽时的回调（通常用于打开确认弹框）
+ * @param {boolean} [props.showFullFundName] - 是否展示完整基金名称
+ * @param {(show: boolean) => void} [props.onToggleShowFullFundName] - 切换是否展示完整基金名称回调
  */
 export default function PcTableSettingModal({
   open,
@@ -29,6 +31,8 @@ export default function PcTableSettingModal({
   onResetColumnOrder,
   onResetColumnVisibility,
   onResetSizing,
+  showFullFundName,
+  onToggleShowFullFundName,
 }) {
   const [resetOrderConfirmOpen, setResetOrderConfirmOpen] = useState(false);
 
@@ -91,6 +95,45 @@ export default function PcTableSettingModal({
             </div>
 
             <div className="pc-table-setting-body">
+              {onToggleShowFullFundName && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 0',
+                    borderBottom: '1px solid var(--border)',
+                    marginBottom: 16,
+                  }}
+                >
+                  <span style={{ fontSize: '14px' }}>展示完整基金名称</span>
+                  <button
+                    type="button"
+                    className="icon-button pc-table-column-switch"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleShowFullFundName(!showFullFundName);
+                    }}
+                    title={showFullFundName ? '关闭' : '开启'}
+                    style={{
+                      border: 'none',
+                      padding: '0 4px',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span className={`dca-toggle-track ${showFullFundName ? 'enabled' : ''}`}>
+                      <span
+                        className="dca-toggle-thumb"
+                        style={{ left: showFullFundName ? 16 : 2 }}
+                      />
+                    </span>
+                  </button>
+                </div>
+              )}
               <h3 className="pc-table-setting-subtitle">表头设置</h3>
               <div
                 style={{
