@@ -3,6 +3,13 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { CloseIcon } from './Icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function ScanImportConfirmModal({
   scannedFunds,
@@ -121,18 +128,18 @@ export default function ScanImportConfirmModal({
             </div>
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="muted" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>添加到分组：</span>
-              <select
-                className="select"
-                value={selectedGroupId}
-                onChange={(e) => setSelectedGroupId(e.target.value)}
-                style={{ flex: 1 }}
-              >
-                <option value="all">全部</option>
-                <option value="fav">自选</option>
-                {groups.filter(g => g.id !== 'all' && g.id !== 'fav').map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
+              <Select value={selectedGroupId} onValueChange={(value) => setSelectedGroupId(value)}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="选择分组" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="fav">自选</SelectItem>
+                  {groups.filter(g => g.id !== 'all' && g.id !== 'fav').map(g => (
+                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </>
         )}

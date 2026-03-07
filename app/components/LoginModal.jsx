@@ -1,5 +1,6 @@
 'use client';
 
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { MailIcon } from './Icons';
 
 export default function LoginModal({
@@ -56,15 +57,21 @@ export default function LoginModal({
               <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>
                 请输入邮箱验证码以完成注册/登录
               </div>
-              <input
-                className="input"
-                type="text"
-                placeholder="输入验证码"
-                value={loginOtp}
-                onChange={(e) => setLoginOtp(e.target.value)}
-                disabled={loginLoading}
+              <InputOTP
                 maxLength={6}
-              />
+                value={loginOtp}
+                onChange={(value) => setLoginOtp(value)}
+                disabled={loginLoading}
+              >
+                <InputOTPGroup>
+                  <InputOTPSlot index={0} />
+                  <InputOTPSlot index={1} />
+                  <InputOTPSlot index={2} />
+                  <InputOTPSlot index={3} />
+                  <InputOTPSlot index={4} />
+                  <InputOTPSlot index={5} />
+                </InputOTPGroup>
+              </InputOTP>
             </div>
           )}
           {loginError && (
