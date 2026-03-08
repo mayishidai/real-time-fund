@@ -712,7 +712,7 @@ export default function PcFundTable({
           };
 
           return (
-            <div className="row" style={{ justifyContent: 'center', gap: 4 }}>
+            <div className="row" style={{ justifyContent: 'center', gap: 4, padding: '8px 0' }}>
               <button
                 className="icon-button danger"
                 onClick={handleClick}

@@ -93,7 +93,7 @@
 html,
 body {
   height: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
@@ -784,7 +784,7 @@ body::before {
 @media (max-width: 640px) {
   .content {
     padding-top: 140px;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   .navbar {
@@ -950,7 +950,7 @@ input[type="number"] {
     padding: 12px;
     width: 100%;
     max-width: 100%;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   .grid {
@@ -1535,6 +1535,22 @@ input[type="number"] {
     /* min-width 由 MobileFundTable 根据 columns meta.width 动态设置 */
   }
 
+  .mobile-fund-table-portal-header {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    left: 13px;
+    right: 13px;
+    box-sizing: border-box;
+  }
+  .mobile-fund-table-portal-header::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile-fund-table-portal-header .mobile-fund-table-scroll {
+    padding: 0;
+  }
+
   .mobile-fund-table .table-header-row {
     display: grid;
     /* grid-template-columns 由 MobileFundTable 根据当前列顺序动态设置 */
@@ -1586,13 +1602,17 @@ input[type="number"] {
     position: sticky;
     left: 0;
     z-index: 2;
-    box-shadow: 4px 0 10px -2px rgba(0, 0, 0, 0.12);
-    border-right: 1px solid rgba(0, 0, 0, 0.08);
     border-bottom: none;
   }
 
-  [data-theme="light"] .mobile-fund-table .table-header-cell-pin-left,
-  [data-theme="light"] .mobile-fund-table .table-cell-pin-left {
+  .mobile-fund-table .is-scrolled,
+  .mobile-fund-table .is-scrolled {
+    box-shadow: 4px 0 10px -2px rgba(0, 0, 0, 0.12);
+    border-right: 1px solid rgba(0, 0, 0, 0.08);
+  }
+
+  [data-theme="light"] .mobile-fund-table .is-scrolled,
+  [data-theme="light"] .mobile-fund-table .is-scrolled {
     box-shadow: 4px 0 10px -2px rgba(0, 0, 0, 0.08);
     border-right-color: rgba(0, 0, 0, 0.06);
   }
