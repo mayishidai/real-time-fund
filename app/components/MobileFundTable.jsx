@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -23,9 +23,18 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { throttle } from 'lodash';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import FitText from './FitText';
+import FundCard from './FundCard';
 import MobileSettingModal from './MobileSettingModal';
-import { ExitIcon, SettingsIcon, StarIcon } from './Icons';
+import { CloseIcon, DragIcon, ExitIcon, SettingsIcon, SortIcon, StarIcon } from './Icons';
 
 const MOBILE_NON_FROZEN_COLUMN_IDS = [
   'yesterdayChangePercent',
@@ -45,6 +54,8 @@ const MOBILE_COLUMN_HEADERS = {
   todayProfit: '当日收益',
   holdingProfit: '持有收益',
 };
+
+const RowSortableContext = createContext(null);
 
 function SortableRow({ row, children, isTableDragging, disabled }) {
   const {
@@ -75,7 +86,9 @@ function SortableRow({ row, children, isTableDragging, disabled }) {
       style={{ ...style, position: 'relative' }}
       {...attributes}
     >
-      {typeof children === 'function' ? children(setActivatorNodeRef, listeners) : children}
+      <RowSortableContext.Provider value={{ setActivatorNodeRef, listeners }}>
+        {typeof children === 'function' ? children(setActivatorNodeRef, listeners) : children}
+      </RowSortableContext.Provider>
     </motion.div>
   );
 }
@@ -94,6 +107,7 @@ function SortableRow({ row, children, isTableDragging, disabled }) {
  * @param {boolean} [props.refreshing] - 是否刷新中
  * @param {string} [props.sortBy] - 排序方式，'default' 时长按行触发拖拽排序
  * @param {(oldIndex: number, newIndex: number) => void} [props.onReorder] - 拖拽排序回调
+ * @param {(row: any) => Object} [props.getFundCardProps] - 给定行返回 FundCard 的 props；传入后点击基金名称将用底部弹框展示卡片视图
  */
 export default function MobileFundTable({
   data = [],
@@ -109,19 +123,33 @@ export default function MobileFundTable({
   onReorder,
   onCustomSettingsChange,
   stickyTop = 0,
+  getFundCardProps,
+  blockDrawerClose = false,
+  closeDrawerRef,
 }) {
+  const [isNameSortMode, setIsNameSortMode] = useState(false);
+
+  // 排序模式下拖拽手柄无需长按，直接拖动即可；非排序模式长按整行触发拖拽
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { delay: 400, tolerance: 5 },
+      activationConstraint: isNameSortMode ? { delay: 0, tolerance: 5 } : { delay: 400, tolerance: 5 },
     }),
     useSensor(KeyboardSensor)
   );
 
   const [activeId, setActiveId] = useState(null);
+  const ignoreNextDrawerCloseRef = useRef(false);
 
   const onToggleFavoriteRef = useRef(onToggleFavorite);
   const onRemoveFromGroupRef = useRef(onRemoveFromGroup);
   const onHoldingAmountClickRef = useRef(onHoldingAmountClick);
+
+  useEffect(() => {
+    if (closeDrawerRef) {
+      closeDrawerRef.current = () => setCardSheetRow(null);
+      return () => { closeDrawerRef.current = null; };
+    }
+  }, [closeDrawerRef]);
 
   useEffect(() => {
     onToggleFavoriteRef.current = onToggleFavorite;
@@ -276,6 +304,20 @@ export default function MobileFundTable({
   };
 
   const [settingModalOpen, setSettingModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (sortBy !== 'default') setIsNameSortMode(false);
+  }, [sortBy]);
+
+  // 排序模式下，点击页面任意区域（含表格外）退出排序；使用冒泡阶段，避免先于排序按钮处理
+  useEffect(() => {
+    if (!isNameSortMode) return;
+    const onDocClick = () => setIsNameSortMode(false);
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, [isNameSortMode]);
+
+  const [cardSheetRow, setCardSheetRow] = useState(null);
   const tableContainerRef = useRef(null);
   const portalHeaderRef = useRef(null);
   const [tableContainerWidth, setTableContainerWidth] = useState(0);
@@ -308,7 +350,7 @@ export default function MobileFundTable({
       return isSummaryStuck ? stickyTop + stickySummaryWrapper.offsetHeight : stickyTop;
     };
 
-    const handleVerticalScroll = () => {
+    const updateVerticalState = () => {
       const nextStickyTop = getEffectiveStickyTop();
       setEffectiveStickyTop((prev) => (prev === nextStickyTop ? prev : nextStickyTop));
 
@@ -321,12 +363,15 @@ export default function MobileFundTable({
       setShowPortalHeader(tableRect.top <= nextStickyTop);
     };
 
-    handleVerticalScroll();
-    window.addEventListener('scroll', handleVerticalScroll, { passive: true });
-    window.addEventListener('resize', handleVerticalScroll, { passive: true });
+    const throttledVerticalUpdate = throttle(updateVerticalState, 1000/60, { leading: true, trailing: true });
+
+    updateVerticalState();
+    window.addEventListener('scroll', throttledVerticalUpdate, { passive: true });
+    window.addEventListener('resize', throttledVerticalUpdate, { passive: true });
     return () => {
-      window.removeEventListener('scroll', handleVerticalScroll);
-      window.removeEventListener('resize', handleVerticalScroll);
+      window.removeEventListener('scroll', throttledVerticalUpdate);
+      window.removeEventListener('resize', throttledVerticalUpdate);
+      throttledVerticalUpdate.cancel();
     };
   }, [stickyTop]);
 
@@ -416,8 +461,9 @@ export default function MobileFundTable({
     setMobileColumnVisibility((prev = {}) => ({ ...prev, [columnId]: visible }));
   };
 
-  // 移动端名称列：无拖拽把手，长按整行触发排序
-  const MobileFundNameCell = ({ info, showFullFundName }) => {
+  // 移动端名称列：无拖拽把手，长按整行触发排序；点击名称可打开底部卡片弹框（需传入 getFundCardProps）
+  // 当 isNameSortMode 且 sortBy==='default' 时，左侧显示排序/拖拽图标，可拖动行排序
+  const MobileFundNameCell = ({ info, showFullFundName, onOpenCardSheet, isNameSortMode: nameSortMode, sortBy: currentSortBy }) => {
     const original = info.row.original || {};
     const code = original.code;
     const isUpdated = original.isUpdated;
@@ -426,10 +472,23 @@ export default function MobileFundTable({
     const holdingAmountDisplay = hasHoldingAmount ? (original.holdingAmount ?? '—') : null;
     const isFavorites = favorites?.has?.(code);
     const isGroupTab = currentTab && currentTab !== 'all' && currentTab !== 'fav';
+    const rowSortable = useContext(RowSortableContext);
+    const showDragHandle = nameSortMode && currentSortBy === 'default' && rowSortable;
 
     return (
       <div className="name-cell-content" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {isGroupTab ? (
+        {showDragHandle ? (
+          <span
+            ref={rowSortable.setActivatorNodeRef}
+            className="icon-button fav-button"
+            title="拖动排序"
+            style={{ backgroundColor: 'transparent', touchAction: 'none', cursor: 'grab', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={(e) => e.stopPropagation()}
+            {...rowSortable.listeners}
+          >
+            <DragIcon width="18" height="18" />
+          </span>
+        ) : isGroupTab ? (
           <button
             className="icon-button fav-button"
             onClick={(e) => {
@@ -457,7 +516,22 @@ export default function MobileFundTable({
         <div className="title-text">
           <span
             className={`name-text ${showFullFundName ? 'show-full' : ''}`}
-            title={isUpdated ? '今日净值已更新' : ''}
+            title={isUpdated ? '今日净值已更新' : onOpenCardSheet ? '点击查看卡片' : ''}
+            role={onOpenCardSheet ? 'button' : undefined}
+            tabIndex={onOpenCardSheet ? 0 : undefined}
+            style={onOpenCardSheet ? { cursor: 'pointer' } : undefined}
+            onClick={(e) => {
+              if (onOpenCardSheet) {
+                e.stopPropagation?.();
+                onOpenCardSheet(original);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (onOpenCardSheet && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                onOpenCardSheet(original);
+              }
+            }}
           >
             {info.getValue() ?? '—'}
           </span>
@@ -541,9 +615,42 @@ export default function MobileFundTable({
             >
               <SettingsIcon width="18" height="18" />
             </button>
+            {sortBy === 'default' && (
+              <button
+                type="button"
+                className={`icon-button ${isNameSortMode ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation?.();
+                  setIsNameSortMode((prev) => !prev);
+                }}
+                title={isNameSortMode ? '退出排序' : '拖动排序'}
+                style={{
+                  border: 'none',
+                  width: '28px',
+                  height: '28px',
+                  minWidth: '28px',
+                  backgroundColor: 'transparent',
+                  color: isNameSortMode ? 'var(--primary)' : 'var(--text)',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <SortIcon width="18" height="18" />
+              </button>
+            )}
           </div>
         ),
-        cell: (info) => <MobileFundNameCell info={info} showFullFundName={showFullFundName} />,
+        cell: (info) => (
+          <MobileFundNameCell
+            info={info}
+            showFullFundName={showFullFundName}
+            onOpenCardSheet={getFundCardProps ? (row) => setCardSheetRow(row) : undefined}
+            isNameSortMode={isNameSortMode}
+            sortBy={sortBy}
+          />
+        ),
         meta: { align: 'left', cellClassName: 'name-cell', width: columnWidthMap.fundName },
       },
       {
@@ -650,6 +757,7 @@ export default function MobileFundTable({
           const cls = hasProfit ? (value > 0 ? 'up' : value < 0 ? 'down' : '') : 'muted';
           const amountStr = hasProfit ? (info.getValue() ?? '') : '—';
           const percentStr = original.todayProfitPercent ?? '';
+          const isUpdated = original.isUpdated;
           return (
             <div style={{ width: '100%' }}>
               <span className={cls} style={{ display: 'block', width: '100%', fontWeight: 700 }}>
@@ -657,7 +765,7 @@ export default function MobileFundTable({
                   {amountStr}
                 </FitText>
               </span>
-              {percentStr ? (
+              {percentStr && !isUpdated ? (
                 <span className={`${cls} today-profit-percent`} style={{ display: 'block', width: '100%', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}
@@ -699,7 +807,7 @@ export default function MobileFundTable({
         meta: { align: 'right', cellClassName: 'holding-cell', width: columnWidthMap.holdingProfit },
       },
     ],
-    [currentTab, favorites, refreshing, columnWidthMap, showFullFundName]
+    [currentTab, favorites, refreshing, columnWidthMap, showFullFundName, getFundCardProps, isNameSortMode, sortBy]
   );
 
   const table = useReactTable({
@@ -887,7 +995,7 @@ export default function MobileFundTable({
                     >
                       {(setActivatorNodeRef, listeners) => (
                         <div
-                          ref={sortBy === 'default' ? setActivatorNodeRef : undefined}
+                          ref={sortBy === 'default' && !isNameSortMode ? setActivatorNodeRef : undefined}
                           className="table-row"
                           style={{
                             background: 'var(--bg)',
@@ -895,7 +1003,8 @@ export default function MobileFundTable({
                             zIndex: 1,
                             ...(mobileGridLayout.gridTemplateColumns ? { gridTemplateColumns: mobileGridLayout.gridTemplateColumns } : {}),
                           }}
-                          {...(sortBy === 'default' ? listeners : {})}
+                          onClick={isNameSortMode ? () => setIsNameSortMode(false) : undefined}
+                          {...(sortBy === 'default' && !isNameSortMode ? listeners : {})}
                         >
                           {row.getVisibleCells().map((cell, cellIndex) => {
                             const columnId = cell.column.id;
@@ -948,6 +1057,52 @@ export default function MobileFundTable({
             onToggleShowFullFundName={handleToggleShowFullFundName}
           />
         )}
+
+        <Drawer
+          open={!!(cardSheetRow && getFundCardProps)}
+          onOpenChange={(open) => {
+            if (!open) {
+              if (ignoreNextDrawerCloseRef.current) {
+                ignoreNextDrawerCloseRef.current = false;
+                return;
+              }
+              if (!blockDrawerClose) setCardSheetRow(null);
+            }
+          }}
+        >
+          <DrawerContent
+            className="h-[77vh] max-h-[88vh] mt-0 flex flex-col"
+            onPointerDownOutside={(e) => {
+              if (blockDrawerClose) return;
+              if (e?.target?.closest?.('[data-slot="dialog-content"], [role="dialog"]')) {
+                ignoreNextDrawerCloseRef.current = true;
+                return;
+              }
+              setCardSheetRow(null);
+            }}
+          >
+            <DrawerHeader className="flex-shrink-0 flex flex-row items-center justify-between gap-2 space-y-0 px-5 pb-4 pt-2 text-left">
+              <DrawerTitle className="text-base font-semibold text-[var(--text)]">
+                基金详情
+              </DrawerTitle>
+              <DrawerClose
+                className="icon-button border-none bg-transparent p-1"
+                title="关闭"
+                style={{ borderColor: 'transparent', backgroundColor: 'transparent' }}
+              >
+                <CloseIcon width="20" height="20" />
+              </DrawerClose>
+            </DrawerHeader>
+            <div
+              className="flex-1 min-h-0 overflow-y-auto px-5 pb-8 pt-0"
+              style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}
+            >
+              {cardSheetRow && getFundCardProps ? (
+                <FundCard {...getFundCardProps(cardSheetRow)} />
+              ) : null}
+            </div>
+          </DrawerContent>
+        </Drawer>
 
         {!onlyShowHeader && showPortalHeader && ReactDOM.createPortal(renderContent(true), document.body)}
       </div>
