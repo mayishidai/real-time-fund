@@ -61,6 +61,7 @@ import WeChatModal from "./components/WeChatModal";
 import DcaModal from "./components/DcaModal";
 import githubImg from "./assets/github.svg";
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { toast as sonnerToast } from 'sonner';
 import { recordValuation, getAllValuationSeries, clearFund } from './lib/valuationTimeseries';
 import { loadHolidaysForYears, isTradingDay as isDateTradingDay } from './lib/tradingCalendar';
 import { parseFundTextWithLLM, fetchFundData, fetchLatestRelease, fetchShanghaiIndexDate, fetchSmartFundNetValue, searchFunds } from './api/fund';
@@ -659,7 +660,9 @@ export default function HomePage() {
           isUpdated: f.jzrq === todayStr,
           hasDca: dcaPlans[f.code]?.enabled === true,
           latestNav,
+          latestNavDate: yesterdayDate,
           estimateNav,
+          estimateNavDate: estimateTime,
           yesterdayChangePercent,
           yesterdayChangeValue,
           yesterdayDate,
@@ -2585,9 +2588,11 @@ export default function HomePage() {
     await refreshAll(codes);
   };
 
-  const saveSettings = (e) => {
+  const saveSettings = (e, secondsOverride) => {
     e?.preventDefault?.();
-    const ms = Math.max(30, Number(tempSeconds)) * 1000;
+    const seconds = secondsOverride ?? tempSeconds;
+    const ms = Math.max(30, Number(seconds)) * 1000;
+    setTempSeconds(Math.round(ms / 1000));
     setRefreshMs(ms);
     storageHelper.setItem('refreshMs', String(ms));
     const w = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
@@ -4195,6 +4200,7 @@ export default function HomePage() {
           <ConfirmModal
             title="确认登出"
             message="确定要退出当前账号吗？"
+            icon={<LogoutIcon width="20" height="20" className="shrink-0 text-[var(--danger)]" />}
             confirmText="确认登出"
             onConfirm={() => {
               setLogoutConfirmOpen(false);
@@ -4214,6 +4220,10 @@ export default function HomePage() {
             <button
               className="link-button"
               onClick={() => {
+                if (!user?.id) {
+                  sonnerToast.error('请先登录后再提交反馈');
+                  return;
+                }
                 setFeedbackNonce((n) => n + 1);
                 setFeedbackOpen(true);
               }}

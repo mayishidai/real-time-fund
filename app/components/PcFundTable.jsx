@@ -34,7 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { CloseIcon, DragIcon, ExitIcon, SettingsIcon, StarIcon, TrashIcon } from './Icons';
+import { CloseIcon, DragIcon, ExitIcon, SettingsIcon, StarIcon, TrashIcon, ResetIcon } from './Icons';
 
 const NON_FROZEN_COLUMN_IDS = [
   'yesterdayChangePercent',
@@ -412,7 +412,12 @@ export default function PcFundTable({
         return;
       }
 
-      setShowPortalHeader(rect.top <= nextStickyTop);
+      const headerEl = tableEl?.querySelector('.table-header-row');
+      const headerHeight = headerEl?.getBoundingClientRect?.().height ?? 0;
+      const hasPassedHeader = (rect.top + headerHeight) <= nextStickyTop;
+      const hasTableInView = rect.bottom > nextStickyTop;
+
+      setShowPortalHeader(hasPassedHeader && hasTableInView);
 
       setPortalHorizontal((prev) => {
         const next = {
@@ -561,11 +566,20 @@ export default function PcFundTable({
         header: '最新净值',
         size: 100,
         minSize: 80,
-        cell: (info) => (
-          <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10}>
-            {info.getValue() ?? '—'}
-          </FitText>
-        ),
+        cell: (info) => {
+          const original = info.row.original || {};
+          const date = original.latestNavDate ?? '-';
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0 }}>
+              <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10} as="div">
+                {info.getValue() ?? '—'}
+              </FitText>
+              <span className="muted" style={{ fontSize: '11px' }}>
+                {date}
+              </span>
+            </div>
+          );
+        },
         meta: {
           align: 'right',
           cellClassName: 'value-cell',
@@ -576,11 +590,20 @@ export default function PcFundTable({
         header: '估算净值',
         size: 100,
         minSize: 80,
-        cell: (info) => (
-          <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10}>
-            {info.getValue() ?? '—'}
-          </FitText>
-        ),
+        cell: (info) => {
+          const original = info.row.original || {};
+          const date = original.estimateNavDate ?? '-';
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0 }}>
+              <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10} as="div">
+                {info.getValue() ?? '—'}
+              </FitText>
+              <span className="muted" style={{ fontSize: '11px' }}>
+                {date}
+              </span>
+            </div>
+          );
+        },
         meta: {
           align: 'right',
           cellClassName: 'value-cell',
@@ -1112,6 +1135,8 @@ export default function PcFundTable({
         <ConfirmModal
           title="重置列宽"
           message="是否重置表格列宽为默认值？"
+          icon={<ResetIcon width="20" height="20" className="shrink-0 text-[var(--primary)]" />}
+          confirmVariant="primary"
           onConfirm={handleResetSizing}
           onCancel={() => setResetConfirmOpen(false)}
           confirmText="重置"
