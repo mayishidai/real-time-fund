@@ -1,53 +1,50 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import { CloseIcon, SettingsIcon } from './Icons';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function HoldingActionModal({ fund, onClose, onAction, hasHistory }) {
+  const handleOpenChange = (open) => {
+    if (!open) {
+      onClose?.();
+    }
+  };
+
   return (
-    <motion.div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="持仓操作"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+    <Dialog open onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={false}
         className="glass card modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '320px' }}
+        overlayClassName="modal-overlay"
+        style={{ maxWidth: '320px', zIndex: 99 }}
       >
+        <DialogTitle className="sr-only">持仓操作</DialogTitle>
         <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <SettingsIcon width="20" height="20" />
             <span>持仓操作</span>
-              <button
-                type="button"
-                onClick={() => onAction('history')}
-                style={{ 
-                  marginLeft: 8, 
-                  padding: '4px 8px', 
-                  fontSize: '12px', 
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4
-                }}
-                title="查看交易记录"
-              >
-                <span>📜</span>
-                <span>交易记录</span>
-              </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => onAction('history')}
+              style={{
+                marginLeft: 8,
+                padding: '4px 10px',
+                fontSize: '12px',
+                height: '28px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              title="查看交易记录"
+            >
+              <span>📜</span>
+              <span>交易记录</span>
+            </button>
           </div>
           <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
             <CloseIcon width="20" height="20" />
@@ -92,13 +89,13 @@ export default function HoldingActionModal({ fund, onClose, onAction, hasHistory
               background: 'linear-gradient(180deg, #ef4444, #f87171)',
               border: 'none',
               color: '#2b0b0b',
-              fontWeight: 600
+              fontWeight: 600,
             }}
           >
             清空持仓
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   );
 }

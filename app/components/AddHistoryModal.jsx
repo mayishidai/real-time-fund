@@ -1,10 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { CloseIcon } from './Icons';
 import { fetchSmartFundNetValue } from '../api/fund';
 import { DatePicker } from './Common';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 export default function AddHistoryModal({ fund, onClose, onConfirm }) {
   const [type, setType] = useState('');
@@ -77,30 +82,36 @@ export default function AddHistoryModal({ fund, onClose, onConfirm }) {
     onClose();
   };
 
+  const handleOpenChange = (open) => {
+    if (!open) {
+      onClose?.();
+    }
+  };
+
+  const handleCloseClick = (event) => {
+    event.stopPropagation();
+    onClose?.();
+  };
+
   return (
-    <motion.div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="添加历史记录"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      style={{ zIndex: 1200 }}
-    >
-      <motion.div
+    <Dialog open onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={false}
         className="glass card modal"
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        style={{ maxWidth: '420px' }}
-        onClick={(e) => e.stopPropagation()}
+        overlayClassName="modal-overlay"
+        overlayStyle={{ zIndex: 9998 }}
+        style={{ maxWidth: '420px', zIndex: 9999, width: '90vw' }}
       >
+        <DialogTitle className="sr-only">添加历史记录</DialogTitle>
+
         <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between' }}>
           <span>添加历史记录</span>
-          <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
-            <CloseIcon />
+          <button
+            className="icon-button"
+            onClick={handleCloseClick}
+            style={{ border: 'none', background: 'transparent' }}
+          >
+            <CloseIcon width="20" height="20" />
           </button>
         </div>
 
@@ -200,15 +211,18 @@ export default function AddHistoryModal({ fund, onClose, onConfirm }) {
         <div className="muted" style={{ fontSize: '11px', lineHeight: 1.5, marginBottom: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           *此处补录的买入/卖出仅作记录展示，不会改变当前持仓金额与份额；实际持仓请在持仓设置中维护。
         </div>
-
-        <button
-          className="button primary full-width"
-          onClick={handleSubmit}
-        disabled={!type || !date || !netValue || !amount || !share || loading}
-        >
-          确认添加
-        </button>
-      </motion.div>
-    </motion.div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            type="button"
+            variant="default"
+            size="lg"
+            onClick={handleSubmit}
+            disabled={!type || !date || !netValue || !amount || !share || loading}
+          >
+            确认添加
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

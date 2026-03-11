@@ -1,18 +1,24 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { CloseIcon } from './Icons';
 import ConfirmModal from './ConfirmModal';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
-export default function TransactionHistoryModal({ 
-  fund, 
-  transactions = [], 
-  pendingTransactions = [], 
-  onClose, 
+export default function TransactionHistoryModal({
+  fund,
+  transactions = [],
+  pendingTransactions = [],
+  onClose,
   onDeleteTransaction,
   onDeletePending,
-  onAddHistory
+  onAddHistory,
 }) {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { type: 'pending' | 'history', item }
 
@@ -39,31 +45,46 @@ export default function TransactionHistoryModal({
     setDeleteConfirm(null);
   };
 
+  const handleCloseClick = (event) => {
+    // 只关闭交易记录弹框，避免事件冒泡影响到其他弹框（例如 HoldingActionModal）
+    event.stopPropagation();
+    onClose?.();
+  };
+
+  const handleOpenChange = (open) => {
+    if (!open) {
+      onClose?.();
+    }
+  };
+
   return (
-    <motion.div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      style={{ zIndex: 1100 }} // Higher than TradeModal if stacked, but usually TradeModal closes or this opens on top
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+    <Dialog open onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={false}
         className="glass card modal tx-history-modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '480px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+        overlayClassName="modal-overlay"
+        overlayStyle={{ zIndex: 998 }}
+        style={{
+          maxWidth: '480px',
+          width: '90vw',
+          maxHeight: '80vh',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 999, // 保持原有层级，确保在其他弹框之上
+        }}
       >
+        <DialogTitle className="sr-only">交易记录</DialogTitle>
+
         <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: '20px' }}>📜</span>
             <span>交易记录</span>
           </div>
-          <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
+          <button
+            className="icon-button"
+            onClick={handleCloseClick}
+            style={{ border: 'none', background: 'transparent' }}
+          >
             <CloseIcon width="20" height="20" />
           </button>
         </div>
@@ -73,10 +94,10 @@ export default function TransactionHistoryModal({
             <div className="fund-name" style={{ fontWeight: 600, fontSize: '16px', marginBottom: 4 }}>{fund?.name}</div>
             <div className="muted" style={{ fontSize: '12px' }}>#{fund?.code}</div>
           </div>
-          <button 
-            className="button primary" 
+          <button
+            className="button primary"
             onClick={onAddHistory}
-            style={{ fontSize: '12px', padding: '4px 12px', height: 'auto' }}
+            style={{ fontSize: '12px', padding: '4px 12px', height: 'auto', width: '80px' }}
           >
             添加记录
           </button>
@@ -108,13 +129,16 @@ export default function TransactionHistoryModal({
                   </div>
                   <div className="row" style={{ justifyContent: 'space-between', fontSize: '12px', marginTop: 8 }}>
                     <span className="tx-history-pending-status">等待净值更新...</span>
-                    <button
-                      className="button secondary tx-history-action-btn"
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="destructive"
+                      className="bg-destructive text-white hover:bg-destructive/90"
                       onClick={() => handleDeleteClick(item, 'pending')}
-                      style={{ padding: '2px 8px', fontSize: '10px', height: 'auto' }}
+                      style={{ paddingInline: 10 }}
                     >
                       撤销
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -158,13 +182,16 @@ export default function TransactionHistoryModal({
                   )}
                   <div className="row" style={{ justifyContent: 'space-between', fontSize: '12px', marginTop: 8 }}>
                     <span className="muted"></span>
-                    <button
-                      className="button secondary tx-history-action-btn"
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="destructive"
+                      className="bg-destructive text-white hover:bg-destructive/90"
                       onClick={() => handleDeleteClick(item, 'history')}
-                      style={{ padding: '2px 8px', fontSize: '10px', height: 'auto' }}
+                      style={{ paddingInline: 10 }}
                     >
                       删除记录
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))
@@ -172,22 +199,21 @@ export default function TransactionHistoryModal({
           </div>
         </div>
 
-      </motion.div>
-
-      <AnimatePresence>
-        {deleteConfirm && (
-          <ConfirmModal
-            key="delete-confirm"
-            title={deleteConfirm.type === 'pending' ? "撤销交易" : "删除记录"}
-            message={deleteConfirm.type === 'pending' 
-              ? "确定要撤销这笔待处理交易吗？" 
-              : "确定要删除这条交易记录吗？\n注意：删除记录不会恢复已变更的持仓数据。"}
-            onConfirm={handleConfirmDelete}
-            onCancel={() => setDeleteConfirm(null)}
-            confirmText="确认删除"
-          />
-        )}
-      </AnimatePresence>
-    </motion.div>
+        <AnimatePresence>
+          {deleteConfirm && (
+            <ConfirmModal
+              key="delete-confirm"
+              title={deleteConfirm.type === 'pending' ? '撤销交易' : '删除记录'}
+              message={deleteConfirm.type === 'pending'
+                ? '确定要撤销这笔待处理交易吗？'
+                : '确定要删除这条交易记录吗？\n注意：删除记录不会恢复已变更的持仓数据。'}
+              onConfirm={handleConfirmDelete}
+              onCancel={() => setDeleteConfirm(null)}
+              confirmText="确认删除"
+            />
+          )}
+        </AnimatePresence>
+      </DialogContent>
+    </Dialog>
   );
 }

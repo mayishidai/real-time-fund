@@ -89,7 +89,11 @@
     官方验证码位数默认为8位，可自行修改。常见一般为6位。
    在 Supabase控制台 → Authentication → Sign In / Providers → Auth Providers → email → Minimum password length  和 Email OTP Length 都改为6位。
 
-5. 目前项目用到的 sql 语句，查看项目 supabase.sql 文件。
+5. 关闭确认邮件
+
+    在 Supabase控制台 → Authentication → Sign In / Providers → Auth Providers → email 中，关闭 **Confirm email** 选项。这样用户注册后就不需要再去邮箱点击确认链接了，直接使用验证码登录即可。
+
+6. 目前项目用到的 sql 语句，查看项目 supabase.sql 文件。
 
 更多 Supabase 相关内容查阅官方文档。
 

@@ -2270,6 +2270,10 @@ input[type="number"] {
   color: var(--text) !important;
 }
 
+[data-theme="light"] .trade-modal .queue-button {
+  color: #ffffff !important;
+}
+
 .trade-time-slot {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 8px;

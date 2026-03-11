@@ -131,6 +131,7 @@ function SortableRow({ row, children, isTableDragging, disabled }) {
  * @param {React.MutableRefObject<(() => void) | null>} [props.closeDialogRef] - 注入关闭弹框的方法，用于确认删除时关闭
  * @param {boolean} [props.blockDialogClose] - 为 true 时阻止点击遮罩关闭弹框（如删除确认弹框打开时）
  * @param {number} [props.stickyTop] - 表头固定时的 top 偏移（与 MobileFundTable 一致，用于适配导航栏、筛选栏等）
+ * @param {boolean} [props.masked] - 是否隐藏持仓相关金额
  */
 export default function PcFundTable({
   data = [],
@@ -149,6 +150,7 @@ export default function PcFundTable({
   closeDialogRef,
   blockDialogClose = false,
   stickyTop = 0,
+  masked = false,
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -678,9 +680,9 @@ export default function PcFundTable({
           return (
             <div style={{ width: '100%' }}>
               <FitText className={cls} style={{ fontWeight: 700, display: 'block' }} maxFontSize={14} minFontSize={10}>
-                {amountStr}
+                {masked && hasProfit ? '******' : amountStr}
               </FitText>
-              {percentStr ? (
+              {percentStr && !masked ? (
                 <span className={`${cls} estimate-profit-percent`} style={{ display: 'block', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}
@@ -736,7 +738,7 @@ export default function PcFundTable({
             >
               <div style={{ flex: '1 1 0', minWidth: 0 }}>
                 <FitText style={{ fontWeight: 700 }} maxFontSize={14} minFontSize={10}>
-                  {info.getValue() ?? '—'}
+                  {masked ? '******' : (info.getValue() ?? '—')}
                 </FitText>
               </div>
               <button
@@ -774,9 +776,9 @@ export default function PcFundTable({
           return (
             <div style={{ width: '100%' }}>
               <FitText className={cls} style={{ fontWeight: 700, display: 'block' }} maxFontSize={14} minFontSize={10}>
-                {amountStr}
+                {masked && hasProfit ? '******' : amountStr}
               </FitText>
-              {percentStr && !isUpdated ? (
+              {percentStr && !isUpdated && !masked ? (
                 <span className={`${cls} today-profit-percent`} style={{ display: 'block', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}
@@ -806,9 +808,9 @@ export default function PcFundTable({
           return (
             <div style={{ width: '100%' }}>
               <FitText className={cls} style={{ fontWeight: 700, display: 'block' }} maxFontSize={14} minFontSize={10}>
-                {amountStr}
+                {masked && hasTotal ? '******' : amountStr}
               </FitText>
-              {percentStr ? (
+              {percentStr && !masked ? (
                 <span className={`${cls} holding-profit-percent`} style={{ display: 'block', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}

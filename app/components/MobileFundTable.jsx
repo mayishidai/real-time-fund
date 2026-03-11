@@ -108,6 +108,7 @@ function SortableRow({ row, children, isTableDragging, disabled }) {
  * @param {string} [props.sortBy] - 排序方式，'default' 时长按行触发拖拽排序
  * @param {(oldIndex: number, newIndex: number) => void} [props.onReorder] - 拖拽排序回调
  * @param {(row: any) => Object} [props.getFundCardProps] - 给定行返回 FundCard 的 props；传入后点击基金名称将用底部弹框展示卡片视图
+ * @param {boolean} [props.masked] - 是否隐藏持仓相关金额
  */
 export default function MobileFundTable({
   data = [],
@@ -126,6 +127,7 @@ export default function MobileFundTable({
   getFundCardProps,
   blockDrawerClose = false,
   closeDrawerRef,
+  masked = false,
 }) {
   const [isNameSortMode, setIsNameSortMode] = useState(false);
 
@@ -559,7 +561,7 @@ export default function MobileFundTable({
                 }
               }}
             >
-              {holdingAmountDisplay}
+              {masked ? '******' : holdingAmountDisplay}
               {hasDca && <span className="dca-indicator">定</span>}
               {isUpdated && <span className="updated-indicator">✓</span>}
             </span>
@@ -754,10 +756,10 @@ export default function MobileFundTable({
             <div style={{ width: '100%' }}>
               <span className={cls} style={{ display: 'block', width: '100%', fontWeight: 700 }}>
                 <FitText maxFontSize={14} minFontSize={10}>
-                  {amountStr}
+                  {masked && hasProfit ? '******' : amountStr}
                 </FitText>
               </span>
-              {percentStr ? (
+              {percentStr && !masked ? (
                 <span className={`${cls} estimate-profit-percent`} style={{ display: 'block', width: '100%', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}
@@ -784,10 +786,10 @@ export default function MobileFundTable({
             <div style={{ width: '100%' }}>
               <span className={cls} style={{ display: 'block', width: '100%', fontWeight: 700 }}>
                 <FitText maxFontSize={14} minFontSize={10}>
-                  {amountStr}
+                  {masked && hasProfit ? '******' : amountStr}
                 </FitText>
               </span>
-              {percentStr && !isUpdated ? (
+              {percentStr && !isUpdated && !masked ? (
                 <span className={`${cls} today-profit-percent`} style={{ display: 'block', width: '100%', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}
@@ -813,10 +815,10 @@ export default function MobileFundTable({
             <div style={{ width: '100%' }}>
               <span className={cls} style={{ display: 'block', width: '100%', fontWeight: 700 }}>
                 <FitText maxFontSize={14} minFontSize={10}>
-                  {amountStr}
+                  {masked && hasTotal ? '******' : amountStr}
                 </FitText>
               </span>
-              {percentStr ? (
+              {percentStr && !masked ? (
                 <span className={`${cls} holding-profit-percent`} style={{ display: 'block', width: '100%', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}

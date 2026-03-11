@@ -56,9 +56,11 @@ export default function GroupSummary({
   groupName,
   getProfit,
   stickyTop,
+  masked,
+  onToggleMasked,
 }) {
   const [showPercent, setShowPercent] = useState(true);
-  const [isMasked, setIsMasked] = useState(false);
+  const [isMasked, setIsMasked] = useState(masked ?? false);
   const [isSticky, setIsSticky] = useState(false);
   const rowRef = useRef(null);
   const [assetSize, setAssetSize] = useState(24);
@@ -73,6 +75,12 @@ export default function GroupSummary({
       return () => window.removeEventListener('resize', onR);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof masked === 'boolean') {
+      setIsMasked(masked);
+    }
+  }, [masked]);
 
   const summary = useMemo(() => {
     let totalAsset = 0;
@@ -185,7 +193,13 @@ export default function GroupSummary({
               </div>
               <button
                 className="fav-button"
-                onClick={() => setIsMasked((value) => !value)}
+                onClick={() => {
+                  if (onToggleMasked) {
+                    onToggleMasked();
+                  } else {
+                    setIsMasked((value) => !value);
+                  }
+                }}
                 aria-label={isMasked ? '显示资产' : '隐藏资产'}
                 style={{
                   margin: 0,

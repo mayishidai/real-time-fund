@@ -59,6 +59,7 @@ export default function FundCard({
   onToggleCollapse,
   onToggleTrendCollapse,
   layoutMode = 'card', // 'card' | 'drawer'，drawer 时前10重仓与业绩走势以 Tabs 展示
+  masked = false,
 }) {
   const holding = holdings[f?.code];
   const profit = getHoldingProfit?.(f, holding) ?? null;
@@ -226,27 +227,29 @@ export default function FundCard({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                cursor: layoutMode === 'drawer' ? 'default' : 'pointer',
+                cursor: 'pointer',
               }}
-              onClick={() => layoutMode !== 'drawer' && onHoldingClick?.(f)}
+              onClick={() => onHoldingClick?.(f)}
             >
-              未设置  {layoutMode !== 'drawer' && <SettingsIcon width="12" height="12" />}
+              未设置  <SettingsIcon width="12" height="12" />
             </div>
           </div>
         ) : (
           <>
             <div
               className="stat"
-              style={{ cursor: layoutMode === 'drawer' ? 'default' : 'pointer', flexDirection: 'column', gap: 4 }}
-              onClick={() => layoutMode !== 'drawer' && onActionClick?.(f)}
+              style={{ cursor: 'pointer', flexDirection: 'column', gap: 4 }}
+              onClick={() => onActionClick?.(f)}
             >
               <span
                 className="label"
                 style={{ display: 'flex', alignItems: 'center', gap: 4 }}
               >
-                持仓金额 {layoutMode !== 'drawer' && <SettingsIcon width="12" height="12" style={{ opacity: 0.7 }} />}
+                持仓金额 <SettingsIcon width="12" height="12" style={{ opacity: 0.7 }} />
               </span>
-              <span className="value">¥{profit.amount.toFixed(2)}</span>
+              <span className="value">
+                {masked ? '******' : `¥${profit.amount.toFixed(2)}`}
+              </span>
             </div>
             <div className="stat" style={{ flexDirection: 'column', gap: 4 }}>
               <span className="label">当日收益</span>
@@ -262,7 +265,9 @@ export default function FundCard({
                 }`}
               >
                 {profit.profitToday != null
-                  ? `${profit.profitToday > 0 ? '+' : profit.profitToday < 0 ? '-' : ''}¥${Math.abs(profit.profitToday).toFixed(2)}`
+                  ? masked
+                    ? '******'
+                    : `${profit.profitToday > 0 ? '+' : profit.profitToday < 0 ? '-' : ''}¥${Math.abs(profit.profitToday).toFixed(2)}`
                   : '--'}
               </span>
             </div>
@@ -288,14 +293,18 @@ export default function FundCard({
                     profit.profitTotal > 0 ? 'up' : profit.profitTotal < 0 ? 'down' : ''
                   }`}
                 >
-                  {profit.profitTotal > 0 ? '+' : profit.profitTotal < 0 ? '-' : ''}
-                  {percentModes?.[f.code]
-                    ? `${Math.abs(
-                        holding?.cost * holding?.share
-                          ? (profit.profitTotal / (holding.cost * holding.share)) * 100
-                          : 0,
-                      ).toFixed(2)}%`
-                    : `¥${Math.abs(profit.profitTotal).toFixed(2)}`}
+                  {masked
+                    ? '******'
+                    : <>
+                        {profit.profitTotal > 0 ? '+' : profit.profitTotal < 0 ? '-' : ''}
+                        {percentModes?.[f.code]
+                          ? `${Math.abs(
+                              holding?.cost * holding?.share
+                                ? (profit.profitTotal / (holding.cost * holding.share)) * 100
+                                : 0,
+                            ).toFixed(2)}%`
+                          : `¥${Math.abs(profit.profitTotal).toFixed(2)}`}
+                      </>}
                 </span>
               </div>
             )}

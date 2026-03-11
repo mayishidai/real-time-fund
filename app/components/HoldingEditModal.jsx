@@ -1,8 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
 import { CloseIcon, SettingsIcon } from './Icons';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function HoldingEditModal({ fund, holding, onClose, onSave }) {
   const [mode, setMode] = useState('amount'); // 'amount' | 'share'
@@ -89,25 +93,21 @@ export default function HoldingEditModal({ fund, holding, onClose, onSave }) {
     ? (share && cost && !isNaN(share) && !isNaN(cost))
     : (amount && !isNaN(amount) && (!profit || !isNaN(profit)) && dwjz > 0);
 
+  const handleOpenChange = (open) => {
+    if (!open) {
+      onClose?.();
+    }
+  };
+
   return (
-    <motion.div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="编辑持仓"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+    <Dialog open onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={false}
         className="glass card modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '400px' }}
+        overlayClassName="modal-overlay"
+        style={{ maxWidth: '400px', zIndex: 999, width: '90vw' }}
       >
+        <DialogTitle className="sr-only">编辑持仓</DialogTitle>
         <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <SettingsIcon width="20" height="20" />
@@ -238,7 +238,7 @@ export default function HoldingEditModal({ fund, holding, onClose, onSave }) {
             </button>
           </div>
         </form>
-      </motion.div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -185,6 +185,8 @@ export default function HomePage() {
 
   // 视图模式
   const [viewMode, setViewMode] = useState('card'); // card, list
+  // 全局隐藏金额状态（影响分组汇总、列表和卡片）
+  const [maskAmounts, setMaskAmounts] = useState(false);
 
   // 用户认证状态
   const [user, setUser] = useState(null);
@@ -1430,7 +1432,6 @@ export default function HomePage() {
       const fields = Array.from(new Set([
         'jzrq',
         'dwjz',
-        'gsz',
         ...(Array.isArray(extraFields) ? extraFields : [])
       ]));
       const items = list.map((item) => {
@@ -2081,29 +2082,30 @@ export default function HomePage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!isSupabaseConfigured || !user?.id) return;
-    const channel = supabase
-      .channel(`user-configs-${user.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
-        const incoming = payload?.new?.data;
-        if (!isPlainObject(incoming)) return;
-        const incomingComparable = getComparablePayload(incoming);
-        if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
-        await applyCloudConfig(incoming, payload.new.updated_at);
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
-        const incoming = payload?.new?.data;
-        if (!isPlainObject(incoming)) return;
-        const incomingComparable = getComparablePayload(incoming);
-        if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
-        await applyCloudConfig(incoming, payload.new.updated_at);
-      })
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id]);
+  // 实时同步
+  // useEffect(() => {
+  //   if (!isSupabaseConfigured || !user?.id) return;
+  //   const channel = supabase
+  //     .channel(`user-configs-${user.id}`)
+  //     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
+  //       const incoming = payload?.new?.data;
+  //       if (!isPlainObject(incoming)) return;
+  //       const incomingComparable = getComparablePayload(incoming);
+  //       if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
+  //       await applyCloudConfig(incoming, payload.new.updated_at);
+  //     })
+  //     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
+  //       const incoming = payload?.new?.data;
+  //       if (!isPlainObject(incoming)) return;
+  //       const incomingComparable = getComparablePayload(incoming);
+  //       if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
+  //       await applyCloudConfig(incoming, payload.new.updated_at);
+  //     })
+  //     .subscribe();
+  //   return () => {
+  //     supabase.removeChannel(channel);
+  //   };
+  // }, [user?.id]);
 
   const handleSendOtp = async (e) => {
     e.preventDefault();
@@ -3716,6 +3718,26 @@ export default function HomePage() {
                       <div className="user-menu-divider" />
                       <button
                         className="user-menu-item"
+                        disabled={isSyncing}
+                        onClick={async () => {
+                          setUserMenuOpen(false);
+                          if (user?.id) await syncUserConfig(user.id);
+                        }}
+                        title="手动同步配置到云端"
+                      >
+                        {isSyncing ? (
+                          <span className="loading-spinner" style={{ width: 16, height: 16, border: '2px solid var(--muted)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" stroke="var(--primary)" />
+                            <path d="M12 12v9" stroke="var(--accent)" />
+                            <path d="m16 16-4-4-4 4" stroke="var(--accent)" />
+                          </svg>
+                        )}
+                        <span>{isSyncing ? '同步中...' : '同步'}</span>
+                      </button>
+                      <button
+                        className="user-menu-item"
                         onClick={() => {
                           setUserMenuOpen(false);
                           setSettingsOpen(true);
@@ -3926,6 +3948,8 @@ export default function HomePage() {
                   groupName={getGroupName()}
                   getProfit={getHoldingProfit}
                   stickyTop={navbarHeight + filterBarHeight + (isMobile ? -14 : 0)}
+                  masked={maskAmounts}
+                  onToggleMasked={() => setMaskAmounts((v) => !v)}
                 />
 
               {currentTab !== 'all' && currentTab !== 'fav' && (
@@ -4020,6 +4044,7 @@ export default function HomePage() {
                                 onCustomSettingsChange={triggerCustomSettingsSync}
                                 closeDialogRef={fundDetailDialogCloseRef}
                                 blockDialogClose={!!fundDeleteConfirm}
+                                masked={maskAmounts}
                                 getFundCardProps={(row) => {
                                   const fund = row?.rawFund || (row ? { code: row.code, name: row.fundName } : null);
                                   if (!fund) return {};
@@ -4048,6 +4073,7 @@ export default function HomePage() {
                                       setPercentModes((prev) => ({ ...prev, [code]: !prev[code] })),
                                     onToggleCollapse: toggleCollapse,
                                     onToggleTrendCollapse: toggleTrendCollapse,
+                                    masked: maskAmounts,
                                     layoutMode: 'drawer',
                                   };
                                 }}
@@ -4123,9 +4149,11 @@ export default function HomePage() {
                               setPercentModes((prev) => ({ ...prev, [code]: !prev[code] })),
                             onToggleCollapse: toggleCollapse,
                             onToggleTrendCollapse: toggleTrendCollapse,
+                            masked: maskAmounts,
                             layoutMode: 'drawer',
                           };
                         }}
+                        masked={maskAmounts}
                       />
                     )}
                     <AnimatePresence mode="popLayout">
@@ -4166,6 +4194,7 @@ export default function HomePage() {
                               }
                               onToggleCollapse={toggleCollapse}
                               onToggleTrendCollapse={toggleTrendCollapse}
+                              masked={maskAmounts}
                             />
                         </motion.div>
                       ))}
@@ -4291,6 +4320,7 @@ export default function HomePage() {
           <AddFundToGroupModal
             allFunds={funds}
             currentGroupCodes={groups.find(g => g.id === currentTab)?.codes || []}
+            holdings={holdings}
             onClose={() => setAddFundToGroupOpen(false)}
             onAdd={handleAddFundsToGroup}
           />

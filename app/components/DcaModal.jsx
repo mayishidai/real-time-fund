@@ -1,13 +1,17 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { motion } from 'framer-motion';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { DatePicker, NumericInput } from './Common';
 import { isNumber } from 'lodash';
 import { CloseIcon } from './Icons';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -170,30 +174,28 @@ export default function DcaModal({ fund, plan, onClose, onConfirm }) {
     return true;
   };
 
+  const handleOpenChange = (open) => {
+    if (!open) {
+      onClose?.();
+    }
+  };
+
   return (
-    <motion.div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="定投设置"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+    <Dialog open onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={false}
         className="glass card modal dca-modal"
-        onClick={(e) => e.stopPropagation()}
+        overlayClassName="modal-overlay"
         style={{
           maxWidth: '420px',
           maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
+          zIndex: 999,
+          width: '90vw',
         }}
       >
+        <DialogTitle className="sr-only">定投设置</DialogTitle>
         <div
           className="scrollbar-y-styled"
           style={{
@@ -376,8 +378,8 @@ export default function DcaModal({ fund, plan, onClose, onConfirm }) {
             </button>
           </div>
         </div>
-      </motion.div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
