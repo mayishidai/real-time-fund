@@ -24,17 +24,10 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { throttle } from 'lodash';
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from '@/components/ui/drawer';
 import FitText from './FitText';
-import FundCard from './FundCard';
+import MobileFundCardDrawer from './MobileFundCardDrawer';
 import MobileSettingModal from './MobileSettingModal';
-import { CloseIcon, DragIcon, ExitIcon, SettingsIcon, SortIcon, StarIcon } from './Icons';
+import { DragIcon, ExitIcon, SettingsIcon, SortIcon, StarIcon } from './Icons';
 
 const MOBILE_NON_FROZEN_COLUMN_IDS = [
   'yesterdayChangePercent',
@@ -759,7 +752,7 @@ export default function MobileFundTable({
                   {masked && hasProfit ? '******' : amountStr}
                 </FitText>
               </span>
-              {percentStr && !masked ? (
+              {hasProfit && percentStr && !masked ? (
                 <span className={`${cls} estimate-profit-percent`} style={{ display: 'block', width: '100%', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}
@@ -1082,51 +1075,14 @@ export default function MobileFundTable({
           />
         )}
 
-        <Drawer
+        <MobileFundCardDrawer
           open={!!(cardSheetRow && getFundCardProps)}
-          onOpenChange={(open) => {
-            if (!open) {
-              if (ignoreNextDrawerCloseRef.current) {
-                ignoreNextDrawerCloseRef.current = false;
-                return;
-              }
-              if (!blockDrawerClose) setCardSheetRow(null);
-            }
-          }}
-        >
-          <DrawerContent
-            className="h-[77vh] max-h-[88vh] mt-0 flex flex-col"
-            onPointerDownOutside={(e) => {
-              if (blockDrawerClose) return;
-              if (e?.target?.closest?.('[data-slot="dialog-content"], [role="dialog"]')) {
-                ignoreNextDrawerCloseRef.current = true;
-                return;
-              }
-              setCardSheetRow(null);
-            }}
-          >
-            <DrawerHeader className="flex-shrink-0 flex flex-row items-center justify-between gap-2 space-y-0 px-5 pb-4 pt-2 text-left">
-              <DrawerTitle className="text-base font-semibold text-[var(--text)]">
-                基金详情
-              </DrawerTitle>
-              <DrawerClose
-                className="icon-button border-none bg-transparent p-1"
-                title="关闭"
-                style={{ borderColor: 'transparent', backgroundColor: 'transparent' }}
-              >
-                <CloseIcon width="20" height="20" />
-              </DrawerClose>
-            </DrawerHeader>
-            <div
-              className="flex-1 min-h-0 overflow-y-auto px-5 pb-8 pt-0"
-              style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}
-            >
-              {cardSheetRow && getFundCardProps ? (
-                <FundCard {...getFundCardProps(cardSheetRow)} />
-              ) : null}
-            </div>
-          </DrawerContent>
-        </Drawer>
+          onOpenChange={(open) => { if (!open) setCardSheetRow(null); }}
+          blockDrawerClose={blockDrawerClose}
+          ignoreNextDrawerCloseRef={ignoreNextDrawerCloseRef}
+          cardSheetRow={cardSheetRow}
+          getFundCardProps={getFundCardProps}
+        />
 
         {!onlyShowHeader && showPortalHeader && ReactDOM.createPortal(renderContent(true), document.body)}
       </div>
