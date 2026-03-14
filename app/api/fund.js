@@ -711,8 +711,20 @@ export const fetchFundHistory = async (code, range = '1m') => {
   return [];
 };
 
+const API_KEYS = [
+  'sk-5b03d4e02ec22dd2ba233fb6d2dd549b',
+  'sk-5f14ce9c6e94af922bf592942426285c'
+  // 添加更多 API Key 到这里
+];
+
+// 随机从数组中选择一个 API Key
+const getRandomApiKey = () => {
+  if (!API_KEYS.length) return null;
+  return API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
+};
+
 export const parseFundTextWithLLM = async (text) => {
-  const apiKey = 'sk-5b03d4e02ec22dd2ba233fb6d2dd549b';
+  const apiKey = getRandomApiKey();
   if (!apiKey || !text) return null;
 
   try {
