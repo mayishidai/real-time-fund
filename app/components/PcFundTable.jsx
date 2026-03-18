@@ -34,9 +34,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { CloseIcon, DragIcon, ExitIcon, SettingsIcon, StarIcon, TrashIcon, ResetIcon } from './Icons';
+import { DragIcon, ExitIcon, SettingsIcon, StarIcon, TrashIcon, ResetIcon } from './Icons';
+import { fetchRelatedSectors } from '@/app/api/fund';
 
 const NON_FROZEN_COLUMN_IDS = [
+  'relatedSector',
   'yesterdayChangePercent',
   'estimateChangePercent',
   'totalChangePercent',
@@ -47,6 +49,7 @@ const NON_FROZEN_COLUMN_IDS = [
   'estimateNav',
 ];
 const COLUMN_HEADERS = {
+  relatedSector: '关联板块',
   latestNav: '最新净值',
   estimateNav: '估算净值',
   yesterdayChangePercent: '昨日涨幅',
@@ -282,9 +285,15 @@ export default function PcFundTable({
   })();
   const columnVisibility = (() => {
     const vis = currentGroupPc?.pcTableColumnVisibility ?? null;
-    if (vis && typeof vis === 'object' && Object.keys(vis).length > 0) return vis;
+    if (vis && typeof vis === 'object' && Object.keys(vis).length > 0) {
+      const next = { ...vis };
+      if (next.relatedSector === undefined) next.relatedSector = false;
+      return next;
+    }
     const allVisible = {};
     NON_FROZEN_COLUMN_IDS.forEach((id) => { allVisible[id] = true; });
+    // 新增列：默认隐藏（用户可在表格设置中开启）
+    allVisible.relatedSector = false;
     return allVisible;
   })();
   const columnSizing = (() => {
@@ -356,6 +365,7 @@ export default function PcFundTable({
     NON_FROZEN_COLUMN_IDS.forEach((id) => {
       allVisible[id] = true;
     });
+    allVisible.relatedSector = false;
     setColumnVisibility(allVisible);
   };
   const handleToggleColumnVisibility = (columnId, visible) => {
@@ -442,6 +452,51 @@ export default function PcFundTable({
       throttledVerticalUpdate.cancel();
     };
   }, [stickyTop]);
+
+  const relatedSectorEnabled = columnVisibility?.relatedSector !== false;
+  const relatedSectorCacheRef = useRef(new Map());
+  const [relatedSectorByCode, setRelatedSectorByCode] = useState({});
+
+  const fetchRelatedSector = async (code) => fetchRelatedSectors(code);
+
+  const runWithConcurrency = async (items, limit, worker) => {
+    const queue = [...items];
+    const results = [];
+    const runners = Array.from({ length: Math.max(1, limit) }, async () => {
+      while (queue.length) {
+        const item = queue.shift();
+        if (item == null) continue;
+        // eslint-disable-next-line no-await-in-loop
+        results.push(await worker(item));
+      }
+    });
+    await Promise.all(runners);
+    return results;
+  };
+
+  useEffect(() => {
+    if (!relatedSectorEnabled) return;
+    if (!Array.isArray(data) || data.length === 0) return;
+
+    const codes = Array.from(new Set(data.map((d) => d?.code).filter(Boolean)));
+    const missing = codes.filter((code) => !relatedSectorCacheRef.current.has(code));
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      await runWithConcurrency(missing, 4, async (code) => {
+        const value = await fetchRelatedSector(code);
+        relatedSectorCacheRef.current.set(code, value);
+        if (cancelled) return;
+        setRelatedSectorByCode((prev) => {
+          if (prev[code] === value) return prev;
+          return { ...prev, [code]: value };
+        });
+      });
+    })();
+
+    return () => { cancelled = true; };
+  }, [relatedSectorEnabled, data]);
 
   useEffect(() => {
     const tableEl = tableContainerRef.current;
@@ -561,6 +616,27 @@ export default function PcFundTable({
         meta: {
           align: 'left',
           cellClassName: 'name-cell',
+        },
+      },
+      {
+        id: 'relatedSector',
+        header: '关联板块',
+        size: 180,
+        minSize: 120,
+        cell: (info) => {
+          const original = info.row.original || {};
+          const code = original.code;
+          const value = (code && (relatedSectorByCode?.[code] ?? relatedSectorCacheRef.current.get(code))) || '';
+          const display = value || '—';
+          return (
+            <div style={{ width: '100%', textAlign: value ? 'left' : 'right', fontSize: '14px' }}>
+              {display}
+            </div>
+          );
+        },
+        meta: {
+          align: 'right',
+          cellClassName: 'related-sector-cell',
         },
       },
       {
@@ -895,7 +971,7 @@ export default function PcFundTable({
         },
       },
     ],
-    [currentTab, favorites, refreshing, sortBy, showFullFundName, getFundCardProps, masked],
+    [currentTab, favorites, refreshing, sortBy, showFullFundName, getFundCardProps, masked, relatedSectorByCode],
   );
 
   const table = useReactTable({
