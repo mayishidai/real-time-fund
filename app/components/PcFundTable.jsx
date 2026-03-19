@@ -1077,8 +1077,9 @@ export default function PcFundTable({
   const totalHeaderWidth = headerGroup?.headers?.reduce((acc, h) => acc + h.column.getSize(), 0) ?? 0;
 
   return (
-    <div className="pc-fund-table" ref={tableContainerRef}>
-      <style>{`
+    <>
+      <div className="pc-fund-table" ref={tableContainerRef}>
+        <style>{`
         .table-row-scroll {
           --row-bg: var(--bg);
           background-color: var(--row-bg) !important;
@@ -1175,87 +1176,134 @@ export default function PcFundTable({
           opacity: 0;
         }
       `}</style>
-      {/* 表头 */}
-      {renderTableHeader(false)}
+        {/* 表头 */}
+        {renderTableHeader(false)}
 
-      {/* 表体 */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-      >
-        <SortableContext
-          items={data.map((item) => item.code)}
-          strategy={verticalListSortingStrategy}
+        {/* 表体 */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+          modifiers={[restrictToVerticalAxis, restrictToParentElement]}
         >
-          <AnimatePresence mode="popLayout">
-            {table.getRowModel().rows.map((row, index) => (
-              <SortableRow key={row.original.code || row.id} row={row} isTableDragging={!!activeId} disabled={sortBy !== 'default'}>
-                <div
-                  className={`table-row table-row-scroll ${index % 2 === 1 ? 'row-even' : ''}`}
-                >
-                  {row.getVisibleCells().map((cell) => {
-                    const columnId = cell.column.id || cell.column.columnDef?.accessorKey;
-                    const isNameColumn = columnId === 'fundName';
-                    const rightAlignedColumns = new Set([
-                      'latestNav',
-                      'estimateNav',
-                      'yesterdayChangePercent',
-                      'estimateChangePercent',
-                      'totalChangePercent',
-                      'holdingAmount',
-                      'todayProfit',
-                      'holdingProfit',
-                    ]);
-                    const align = isNameColumn
-                      ? ''
-                      : rightAlignedColumns.has(columnId)
-                        ? 'text-right'
-                        : 'text-center';
-                    const cellClassName =
-                      (cell.column.columnDef.meta && cell.column.columnDef.meta.cellClassName) || '';
-                    const style = getCommonPinningStyles(cell.column, false);
-                    const isPinned = cell.column.getIsPinned();
-                    return (
-                      <div
-                        key={cell.id}
-                        className={`table-cell ${align} ${cellClassName} ${isPinned ? 'pinned-cell' : ''}`}
-                        style={style}
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </SortableRow>
-            ))}
-          </AnimatePresence>
-        </SortableContext>
-      </DndContext>
+          <SortableContext
+            items={data.map((item) => item.code)}
+            strategy={verticalListSortingStrategy}
+          >
+            <AnimatePresence mode="popLayout">
+              {table.getRowModel().rows.map((row, index) => (
+                <SortableRow key={row.original.code || row.id} row={row} isTableDragging={!!activeId} disabled={sortBy !== 'default'}>
+                  <div
+                    className={`table-row table-row-scroll ${index % 2 === 1 ? 'row-even' : ''}`}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const columnId = cell.column.id || cell.column.columnDef?.accessorKey;
+                      const isNameColumn = columnId === 'fundName';
+                      const rightAlignedColumns = new Set([
+                        'latestNav',
+                        'estimateNav',
+                        'yesterdayChangePercent',
+                        'estimateChangePercent',
+                        'totalChangePercent',
+                        'holdingAmount',
+                        'todayProfit',
+                        'holdingProfit',
+                      ]);
+                      const align = isNameColumn
+                        ? ''
+                        : rightAlignedColumns.has(columnId)
+                          ? 'text-right'
+                          : 'text-center';
+                      const cellClassName =
+                        (cell.column.columnDef.meta && cell.column.columnDef.meta.cellClassName) || '';
+                      const style = getCommonPinningStyles(cell.column, false);
+                      const isPinned = cell.column.getIsPinned();
+                      return (
+                        <div
+                          key={cell.id}
+                          className={`table-cell ${align} ${cellClassName} ${isPinned ? 'pinned-cell' : ''}`}
+                          style={style}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </SortableRow>
+              ))}
+            </AnimatePresence>
+          </SortableContext>
+        </DndContext>
 
-      {table.getRowModel().rows.length === 0 && (
-        <div className="table-row empty-row">
-          <div className="table-cell" style={{ textAlign: 'center' }}>
-            <span className="muted">暂无数据</span>
+        {table.getRowModel().rows.length === 0 && (
+          <div className="table-row empty-row">
+            <div className="table-cell" style={{ textAlign: 'center' }}>
+              <span className="muted">暂无数据</span>
+            </div>
           </div>
-        </div>
-      )}
-      {resetConfirmOpen && (
-        <ConfirmModal
-          title="重置列宽"
-          message="是否重置表格列宽为默认值？"
-          icon={<ResetIcon width="20" height="20" className="shrink-0 text-[var(--primary)]" />}
-          confirmVariant="primary"
-          onConfirm={handleResetSizing}
-          onCancel={() => setResetConfirmOpen(false)}
-          confirmText="重置"
-        />
+        )}
+        {resetConfirmOpen && (
+          <ConfirmModal
+            title="重置列宽"
+            message="是否重置表格列宽为默认值？"
+            icon={<ResetIcon width="20" height="20" className="shrink-0 text-[var(--primary)]" />}
+            confirmVariant="primary"
+            onConfirm={handleResetSizing}
+            onCancel={() => setResetConfirmOpen(false)}
+            confirmText="重置"
+          />
+        )}
+        {showPortalHeader && ReactDOM.createPortal(
+          <div
+            className="pc-fund-table pc-fund-table-portal-header"
+            ref={portalHeaderRef}
+            style={{
+              position: 'fixed',
+              top: effectiveStickyTop,
+              left: portalHorizontal.left,
+              right: portalHorizontal.right,
+              zIndex: 10,
+              overflowX: 'auto',
+              scrollbarWidth: 'none',
+            }}
+          >
+            <div
+              className="table-header-row table-header-row-scroll"
+              style={{ minWidth: totalHeaderWidth, width: 'fit-content' }}
+            >
+              {headerGroup?.headers.map((header) => {
+                const style = getCommonPinningStyles(header.column, true);
+                const isNameColumn =
+                  header.column.id === 'fundName' ||
+                  header.column.columnDef?.accessorKey === 'fundName';
+                const align = isNameColumn ? '' : 'text-center';
+                return (
+                  <div
+                    key={header.id}
+                    className={`table-header-cell ${align}`}
+                    style={style}
+                  >
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>,
+          document.body
+        )}
+      </div>
+      {!!(cardDialogRow && getFundCardProps) && (
+        <FundDetailDialog blockDialogClose={blockDialogClose} cardDialogRow={cardDialogRow} getFundCardProps={getFundCardProps} setCardDialogRow={setCardDialogRow} />
       )}
       <PcTableSettingModal
         open={settingModalOpen}
@@ -1272,74 +1320,36 @@ export default function PcFundTable({
         showFullFundName={showFullFundName}
         onToggleShowFullFundName={handleToggleShowFullFundName}
       />
-      <Dialog
-        open={!!(cardDialogRow && getFundCardProps)}
-        onOpenChange={(open) => {
-          if (!open && !blockDialogClose) setCardDialogRow(null);
-        }}
-      >
-        <DialogContent
-          className="sm:max-w-2xl max-h-[88vh] flex flex-col p-0 overflow-hidden"
-          onPointerDownOutside={blockDialogClose ? (e) => e.preventDefault() : undefined}
-        >
-          <DialogHeader className="flex-shrink-0 flex flex-row items-center justify-between gap-2 space-y-0 px-6 pb-4 pt-6 text-left border-b border-[var(--border)]">
-            <DialogTitle className="text-base font-semibold text-[var(--text)]">
-              基金详情
-            </DialogTitle>
-          </DialogHeader>
-          <div
-          className="flex-1 min-h-0 overflow-y-auto px-6 py-4 scrollbar-y-styled"
-          >
-            {cardDialogRow && getFundCardProps ? (
-              <FundCard {...getFundCardProps(cardDialogRow)} layoutMode="drawer" />
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
+    </>
 
-      {showPortalHeader && ReactDOM.createPortal(
-        <div
-          className="pc-fund-table pc-fund-table-portal-header"
-          ref={portalHeaderRef}
-          style={{
-            position: 'fixed',
-            top: effectiveStickyTop,
-            left: portalHorizontal.left,
-            right: portalHorizontal.right,
-            zIndex: 10,
-            overflowX: 'auto',
-            scrollbarWidth: 'none',
-          }}
-        >
-          <div
-            className="table-header-row table-header-row-scroll"
-            style={{ minWidth: totalHeaderWidth, width: 'fit-content' }}
-          >
-            {headerGroup?.headers.map((header) => {
-              const style = getCommonPinningStyles(header.column, true);
-              const isNameColumn =
-                header.column.id === 'fundName' ||
-                header.column.columnDef?.accessorKey === 'fundName';
-              const align = isNameColumn ? '' : 'text-center';
-              return (
-                <div
-                  key={header.id}
-                  className={`table-header-cell ${align}`}
-                  style={style}
-                >
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(
-                      header.column.columnDef.header,
-                      header.getContext(),
-                    )}
-                </div>
-              );
-            })}
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
   );
+}
+
+function FundDetailDialog({ blockDialogClose, cardDialogRow, getFundCardProps, setCardDialogRow}) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !blockDialogClose) setCardDialogRow(null);
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-2xl max-h-[88vh] flex flex-col p-0 overflow-hidden"
+        onPointerDownOutside={blockDialogClose ? (e) => e.preventDefault() : undefined}
+      >
+        <DialogHeader className="flex-shrink-0 flex flex-row items-center justify-between gap-2 space-y-0 px-6 pb-4 pt-6 text-left border-b border-[var(--border)]">
+          <DialogTitle className="text-base font-semibold text-[var(--text)]">
+            基金详情
+          </DialogTitle>
+        </DialogHeader>
+        <div
+          className="flex-1 min-h-0 overflow-y-auto px-6 py-4 scrollbar-y-styled"
+        >
+          {cardDialogRow && getFundCardProps ? (
+            <FundCard {...getFundCardProps(cardDialogRow)} layoutMode="drawer" />
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 }

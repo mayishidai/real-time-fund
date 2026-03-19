@@ -883,7 +883,21 @@ export default function HomePage() {
 
   const handleClearConfirm = () => {
     if (clearConfirm?.fund) {
-      handleSaveHolding(clearConfirm.fund.code, { share: null, cost: null });
+      const code = clearConfirm.fund.code;
+      handleSaveHolding(code, { share: null, cost: null });
+
+      setTransactions(prev => {
+        const next = { ...(prev || {}) };
+        delete next[code];
+        storageHelper.setItem('transactions', JSON.stringify(next));
+        return next;
+      });
+
+      setPendingTrades(prev => {
+        const next = prev.filter(trade => trade.fundCode !== code);
+        storageHelper.setItem('pendingTrades', JSON.stringify(next));
+        return next;
+      });
     }
     setClearConfirm(null);
   };
@@ -1039,6 +1053,11 @@ export default function HomePage() {
         const next = [...pendingTrades, pending];
         setPendingTrades(next);
         storageHelper.setItem('pendingTrades', JSON.stringify(next));
+
+        // 如果该基金没有持仓数据，初始化持仓金额为 0
+        if (!holdings[fund.code]) {
+          handleSaveHolding(fund.code, { share: 0, cost: 0 });
+        }
 
         setTradeModal({ open: false, fund: null, type: 'buy' });
         showToast('净值暂未更新，已加入待处理队列', 'info');
@@ -4489,6 +4508,7 @@ export default function HomePage() {
             onClose={() => setActionModal({ open: false, fund: null })}
             onAction={(type) => handleAction(type, actionModal.fund)}
             hasHistory={!!transactions[actionModal.fund?.code]?.length}
+            pendingCount={pendingTrades.filter(t => t.fundCode === actionModal.fund?.code).length}
           />
         )}
       </AnimatePresence>
@@ -4597,6 +4617,12 @@ export default function HomePage() {
             holding={holdings[holdingModal.fund?.code]}
             onClose={() => setHoldingModal({ open: false, fund: null })}
             onSave={(data) => handleSaveHolding(holdingModal.fund?.code, data)}
+            onOpenTrade={() => {
+              const f = holdingModal.fund;
+              if (!f) return;
+              setHoldingModal({ open: false, fund: null });
+              setTradeModal({ open: true, fund: f, type: 'buy' });
+            }}
           />
         )}
       </AnimatePresence>
@@ -4703,15 +4729,12 @@ export default function HomePage() {
       )}
 
       {/* 更新提示弹窗 */}
-      <AnimatePresence>
-        {updateModalOpen && (
-          <UpdatePromptModal
-            updateContent={updateContent}
-            onClose={() => setUpdateModalOpen(false)}
-            onRefresh={() => window.location.reload()}
-          />
-        )}
-      </AnimatePresence>
+      <UpdatePromptModal
+        open={updateModalOpen}
+        updateContent={updateContent}
+        onClose={() => setUpdateModalOpen(false)}
+        onRefresh={() => window.location.reload()}
+      />
 
       <AnimatePresence>
         {isScanning && (
