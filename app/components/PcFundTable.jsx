@@ -48,6 +48,7 @@ const NON_FROZEN_COLUMN_IDS = [
   'latestNav',
   'estimateNav',
 ];
+
 const COLUMN_HEADERS = {
   relatedSector: '关联板块',
   latestNav: '最新净值',
@@ -466,7 +467,7 @@ export default function PcFundTable({
       while (queue.length) {
         const item = queue.shift();
         if (item == null) continue;
-        // eslint-disable-next-line no-await-in-loop
+         
         results.push(await worker(item));
       }
     });
@@ -1046,19 +1047,22 @@ export default function PcFundTable({
           const isNameColumn =
             header.column.id === 'fundName' ||
             header.column.columnDef?.accessorKey === 'fundName';
-          const align = isNameColumn ? '' : 'text-center';
+          const isRightAligned = NON_FROZEN_COLUMN_IDS.includes(header.column.id);
+          const align = isNameColumn ? '' : isRightAligned ? 'text-right' : 'text-center';
           return (
             <div
               key={header.id}
               className={`table-header-cell ${align}`}
               style={style}
             >
-              {header.isPlaceholder
-                ? null
-                : flexRender(
-                  header.column.columnDef.header,
-                  header.getContext(),
-                )}
+              <div style={{ paddingRight: isRightAligned ? '20px' : '0' }}>
+                {header.isPlaceholder
+                  ? null
+                  : flexRender(
+                    header.column.columnDef.header,
+                    header.getContext(),
+                  )}
+              </div>
               {!forPortal && (
                 <div
                   onMouseDown={header.column.getCanResize() ? header.getResizeHandler() : undefined}
@@ -1201,19 +1205,9 @@ export default function PcFundTable({
                     {row.getVisibleCells().map((cell) => {
                       const columnId = cell.column.id || cell.column.columnDef?.accessorKey;
                       const isNameColumn = columnId === 'fundName';
-                      const rightAlignedColumns = new Set([
-                        'latestNav',
-                        'estimateNav',
-                        'yesterdayChangePercent',
-                        'estimateChangePercent',
-                        'totalChangePercent',
-                        'holdingAmount',
-                        'todayProfit',
-                        'holdingProfit',
-                      ]);
                       const align = isNameColumn
                         ? ''
-                        : rightAlignedColumns.has(columnId)
+                        : NON_FROZEN_COLUMN_IDS.includes(columnId)
                           ? 'text-right'
                           : 'text-center';
                       const cellClassName =
@@ -1281,19 +1275,22 @@ export default function PcFundTable({
                 const isNameColumn =
                   header.column.id === 'fundName' ||
                   header.column.columnDef?.accessorKey === 'fundName';
-                const align = isNameColumn ? '' : 'text-center';
+                const isRightAligned = NON_FROZEN_COLUMN_IDS.includes(header.column.id);
+                const align = isNameColumn ? '' : isRightAligned ? 'text-right' : 'text-center';
                 return (
                   <div
                     key={header.id}
                     className={`table-header-cell ${align}`}
                     style={style}
                   >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
+                    <div style={{ paddingRight: isRightAligned ? '20px' : '0' }}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                    </div>
                   </div>
                 );
               })}

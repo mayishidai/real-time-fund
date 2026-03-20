@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import ConfirmModal from './ConfirmModal';
 import { ResetIcon, SettingsIcon } from './Icons';
 
@@ -19,10 +20,13 @@ export default function SettingsModal({
   containerWidth = 1200,
   setContainerWidth,
   onResetContainerWidth,
+  showMarketIndex = true,
+  setShowMarketIndex,
 }) {
   const [sliderDragging, setSliderDragging] = useState(false);
   const [resetWidthConfirmOpen, setResetWidthConfirmOpen] = useState(false);
   const [localSeconds, setLocalSeconds] = useState(tempSeconds);
+  const [localShowMarketIndex, setLocalShowMarketIndex] = useState(showMarketIndex);
   const pageWidthTrackRef = useRef(null);
 
   const clampedWidth = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
@@ -54,6 +58,10 @@ export default function SettingsModal({
   useEffect(() => {
     setLocalSeconds(tempSeconds);
   }, [tempSeconds]);
+
+  useEffect(() => {
+    setLocalShowMarketIndex(showMarketIndex);
+  }, [showMarketIndex]);
 
   return (
     <Dialog
@@ -162,6 +170,22 @@ export default function SettingsModal({
             </div>
           )}
 
+          <div hidden className="form-group" style={{ marginBottom: 16 }}>
+            <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>显示大盘指数</div>
+            <div className="row" style={{ justifyContent: 'flex-start', alignItems: 'center' }}>
+              <Switch
+                checked={localShowMarketIndex}
+                className="ml-2 scale-125"
+                onCheckedChange={(checked) => {
+                  const nextValue = Boolean(checked);
+                  setLocalShowMarketIndex(nextValue);
+                  setShowMarketIndex?.(nextValue);
+                }}
+                aria-label="显示大盘指数"
+              />
+            </div>
+          </div>
+
           <div className="form-group" style={{ marginBottom: 16 }}>
             <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>数据导出</div>
             <div className="row" style={{ gap: 8 }}>
@@ -188,7 +212,7 @@ export default function SettingsModal({
           <div className="row" style={{ justifyContent: 'flex-end', marginTop: 24 }}>
             <button
               className="button"
-              onClick={(e) => saveSettings(e, localSeconds)}
+              onClick={(e) => saveSettings(e, localSeconds, localShowMarketIndex)}
               disabled={localSeconds < 30}
             >
               保存并关闭
