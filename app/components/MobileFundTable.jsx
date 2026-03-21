@@ -349,9 +349,14 @@ export default function MobileFundTable({
       if (!stickySummaryWrapper) return stickyTop;
 
       const wrapperRect = stickySummaryWrapper.getBoundingClientRect();
-      const isSummaryStuck = wrapperRect.top <= stickyTop + 1;
+      // 用“实际 DOM 的 top”判断 sticky 是否已生效，避免 mobile 下 stickyTop 入参与 GroupSummary 不一致导致的偏移。
+      const computedTopStr = window.getComputedStyle(stickySummaryWrapper).top;
+      const computedTop = Number.parseFloat(computedTopStr);
+      const baseTop = Number.isFinite(computedTop) ? computedTop : stickyTop;
+      const isSummaryStuck = wrapperRect.top <= baseTop + 1;
 
-      return isSummaryStuck ? stickyTop + stickySummaryWrapper.offsetHeight : stickyTop;
+      // header 使用固定定位(top)，所以也用视口坐标系下的 wrapperRect.top + 高度，确保不重叠
+      return isSummaryStuck ? wrapperRect.top + stickySummaryWrapper.offsetHeight : stickyTop;
     };
 
     const updateVerticalState = () => {

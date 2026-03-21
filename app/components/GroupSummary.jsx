@@ -56,12 +56,15 @@ export default function GroupSummary({
   groupName,
   getProfit,
   stickyTop,
+  isSticky = false,
+  onToggleSticky,
   masked,
   onToggleMasked,
+  marketIndexAccordionHeight,
+  navbarHeight
 }) {
   const [showPercent, setShowPercent] = useState(true);
   const [isMasked, setIsMasked] = useState(masked ?? false);
-  const [isSticky, setIsSticky] = useState(false);
   const rowRef = useRef(null);
   const [assetSize, setAssetSize] = useState(24);
   const [metricSize, setMetricSize] = useState(18);
@@ -165,12 +168,22 @@ export default function GroupSummary({
     metricSize,
   ]);
 
+  const style = useMemo(()=>{
+    const style = {};
+    if (isSticky) {
+      style.top = stickyTop + 14;
+    }else if(!marketIndexAccordionHeight) {
+      style.marginTop = navbarHeight;
+    }
+    return style;
+  },[isSticky, stickyTop, marketIndexAccordionHeight, navbarHeight])
+
   if (!summary.hasHolding) return null;
 
   return (
     <div
       className={isSticky ? 'group-summary-sticky' : ''}
-      style={isSticky && stickyTop ? { top: stickyTop } : {}}
+      style={style}
     >
       <div
         className="glass card group-summary-card"
@@ -183,7 +196,9 @@ export default function GroupSummary({
       >
         <span
           className="sticky-toggle-btn"
-          onClick={() => setIsSticky(!isSticky)}
+          onClick={() => {
+            onToggleSticky?.(!isSticky);
+          }}
           style={{
             position: 'absolute',
             top: 4,

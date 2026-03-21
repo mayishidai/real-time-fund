@@ -20,13 +20,14 @@ export default function SettingsModal({
   containerWidth = 1200,
   setContainerWidth,
   onResetContainerWidth,
-  showMarketIndex = true,
-  setShowMarketIndex,
+  showMarketIndexPc = true,
+  showMarketIndexMobile = true,
 }) {
   const [sliderDragging, setSliderDragging] = useState(false);
   const [resetWidthConfirmOpen, setResetWidthConfirmOpen] = useState(false);
   const [localSeconds, setLocalSeconds] = useState(tempSeconds);
-  const [localShowMarketIndex, setLocalShowMarketIndex] = useState(showMarketIndex);
+  const [localShowMarketIndexPc, setLocalShowMarketIndexPc] = useState(showMarketIndexPc);
+  const [localShowMarketIndexMobile, setLocalShowMarketIndexMobile] = useState(showMarketIndexMobile);
   const pageWidthTrackRef = useRef(null);
 
   const clampedWidth = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
@@ -60,8 +61,12 @@ export default function SettingsModal({
   }, [tempSeconds]);
 
   useEffect(() => {
-    setLocalShowMarketIndex(showMarketIndex);
-  }, [showMarketIndex]);
+    setLocalShowMarketIndexPc(showMarketIndexPc);
+  }, [showMarketIndexPc]);
+
+  useEffect(() => {
+    setLocalShowMarketIndexMobile(showMarketIndexMobile);
+  }, [showMarketIndexMobile]);
 
   return (
     <Dialog
@@ -170,16 +175,16 @@ export default function SettingsModal({
             </div>
           )}
 
-          <div hidden className="form-group" style={{ marginBottom: 16 }}>
+          <div className="form-group" style={{ marginBottom: 16 }}>
             <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>显示大盘指数</div>
             <div className="row" style={{ justifyContent: 'flex-start', alignItems: 'center' }}>
               <Switch
-                checked={localShowMarketIndex}
+                checked={isMobile ? localShowMarketIndexMobile : localShowMarketIndexPc}
                 className="ml-2 scale-125"
                 onCheckedChange={(checked) => {
                   const nextValue = Boolean(checked);
-                  setLocalShowMarketIndex(nextValue);
-                  setShowMarketIndex?.(nextValue);
+                  if (isMobile) setLocalShowMarketIndexMobile(nextValue);
+                  else setLocalShowMarketIndexPc(nextValue);
                 }}
                 aria-label="显示大盘指数"
               />
@@ -212,7 +217,12 @@ export default function SettingsModal({
           <div className="row" style={{ justifyContent: 'flex-end', marginTop: 24 }}>
             <button
               className="button"
-              onClick={(e) => saveSettings(e, localSeconds, localShowMarketIndex)}
+              onClick={(e) => saveSettings(
+                e,
+                localSeconds,
+                isMobile ? localShowMarketIndexMobile : localShowMarketIndexPc,
+                isMobile
+              )}
               disabled={localSeconds < 30}
             >
               保存并关闭

@@ -136,7 +136,9 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tempSeconds, setTempSeconds] = useState(60);
   const [containerWidth, setContainerWidth] = useState(1200);
-  const [showMarketIndex, setShowMarketIndex] = useState(true);
+  const [showMarketIndexPc, setShowMarketIndexPc] = useState(true);
+  const [showMarketIndexMobile, setShowMarketIndexMobile] = useState(true);
+  const [isGroupSummarySticky, setIsGroupSummarySticky] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -149,9 +151,8 @@ export default function HomePage() {
       if (Number.isFinite(num)) {
         setContainerWidth(Math.min(2000, Math.max(600, num)));
       }
-      if (typeof parsed?.showMarketIndex === 'boolean') {
-        setShowMarketIndex(parsed.showMarketIndex);
-      }
+      if (typeof parsed?.showMarketIndexPc === 'boolean') setShowMarketIndexPc(parsed.showMarketIndexPc);
+      if (typeof parsed?.showMarketIndexMobile === 'boolean') setShowMarketIndexMobile(parsed.showMarketIndexMobile);
     } catch { }
   }, []);
 
@@ -417,6 +418,7 @@ export default function HomePage() {
       clearTimeout(timer);
     };
   }, [groups, currentTab]); // groups 或 tab 变化可能导致 filterBar 高度变化
+
   const handleMobileSearchClick = (e) => {
     e?.preventDefault();
     e?.stopPropagation();
@@ -468,6 +470,13 @@ export default function HomePage() {
       return () => window.removeEventListener('resize', checkMobile);
     }
   }, []);
+
+  const shouldShowMarketIndex = isMobile ? showMarketIndexMobile : showMarketIndexPc;
+
+  // 当关闭大盘指数时，重置它的高度，避免 top/stickyTop 仍沿用旧值
+  useEffect(() => {
+    if (!shouldShowMarketIndex) setMarketIndexAccordionHeight(0);
+  }, [shouldShowMarketIndex]);
 
   // 检查更新
   const [hasUpdate, setHasUpdate] = useState(false);
@@ -2806,25 +2815,41 @@ export default function HomePage() {
     await refreshAll(codes);
   };
 
-  const saveSettings = (e, secondsOverride, showMarketIndexOverride) => {
+  const saveSettings = (e, secondsOverride, showMarketIndexOverride, isMobileOverride) => {
     e?.preventDefault?.();
     const seconds = secondsOverride ?? tempSeconds;
-    const shouldShowMarketIndex = typeof showMarketIndexOverride === 'boolean' ? showMarketIndexOverride : showMarketIndex;
     const ms = Math.max(30, Number(seconds)) * 1000;
     setTempSeconds(Math.round(ms / 1000));
     setRefreshMs(ms);
-    setShowMarketIndex(shouldShowMarketIndex);
+    const nextShowMarketIndex = typeof showMarketIndexOverride === 'boolean'
+      ? showMarketIndexOverride
+      : isMobileOverride
+        ? showMarketIndexMobile
+        : showMarketIndexPc;
+
+    const targetIsMobile = Boolean(isMobileOverride);
+    if (targetIsMobile) setShowMarketIndexMobile(nextShowMarketIndex);
+    else setShowMarketIndexPc(nextShowMarketIndex);
     storageHelper.setItem('refreshMs', String(ms));
     const w = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
     setContainerWidth(w);
     try {
       const raw = window.localStorage.getItem('customSettings');
       const parsed = raw ? JSON.parse(raw) : {};
-      window.localStorage.setItem('customSettings', JSON.stringify({
-        ...parsed,
-        pcContainerWidth: w,
-        showMarketIndex: shouldShowMarketIndex,
-      }));
+      if (targetIsMobile) {
+        // 仅更新当前运行端对应的开关键
+        window.localStorage.setItem('customSettings', JSON.stringify({
+          ...parsed,
+          pcContainerWidth: w,
+          showMarketIndexMobile: nextShowMarketIndex,
+        }));
+      } else {
+        window.localStorage.setItem('customSettings', JSON.stringify({
+          ...parsed,
+          pcContainerWidth: w,
+          showMarketIndexPc: nextShowMarketIndex,
+        }));
+      }
       triggerCustomSettingsSync();
     } catch { }
     setSettingsOpen(false);
@@ -3982,7 +4007,7 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-      {showMarketIndex && (
+      {shouldShowMarketIndex && (
         <MarketIndexAccordion
           navbarHeight={navbarHeight}
           onHeightChange={setMarketIndexAccordionHeight}
@@ -4207,8 +4232,12 @@ export default function HomePage() {
                   groupName={getGroupName()}
                   getProfit={getHoldingProfit}
                   stickyTop={navbarHeight + marketIndexAccordionHeight + filterBarHeight + (isMobile ? -14 : 0)}
+                  isSticky={isGroupSummarySticky}
+                  onToggleSticky={(next) => setIsGroupSummarySticky(next)}
                   masked={maskAmounts}
                   onToggleMasked={() => setMaskAmounts((v) => !v)}
+                  marketIndexAccordionHeight={marketIndexAccordionHeight}
+                  navbarHeight={navbarHeight}
                 />
 
               {currentTab !== 'all' && currentTab !== 'fav' && (
@@ -4258,6 +4287,7 @@ export default function HomePage() {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                   className={viewMode === 'card' ? 'grid' : 'table-container glass'}
+                  style={{ marginTop: isGroupSummarySticky ? 50 : 0 }}
                 >
                   <div className={viewMode === 'card' ? 'grid col-12' : ''} style={viewMode === 'card' ? { gridColumn: 'span 12', gap: 16 } : {}}>
                     {/* PC 列表：使用 PcFundTable + 右侧冻结操作列 */}
@@ -4810,8 +4840,8 @@ export default function HomePage() {
           containerWidth={containerWidth}
           setContainerWidth={setContainerWidth}
           onResetContainerWidth={handleResetContainerWidth}
-          showMarketIndex={showMarketIndex}
-          setShowMarketIndex={setShowMarketIndex}
+          showMarketIndexPc={showMarketIndexPc}
+          showMarketIndexMobile={showMarketIndexMobile}
         />
       )}
 
