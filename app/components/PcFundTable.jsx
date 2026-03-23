@@ -43,6 +43,7 @@ const NON_FROZEN_COLUMN_IDS = [
   'estimateChangePercent',
   'totalChangePercent',
   'holdingAmount',
+  'holdingDays',
   'todayProfit',
   'holdingProfit',
   'latestNav',
@@ -57,6 +58,7 @@ const COLUMN_HEADERS = {
   estimateChangePercent: '估值涨幅',
   totalChangePercent: '估算收益',
   holdingAmount: '持仓金额',
+  holdingDays: '持有天数',
   todayProfit: '当日收益',
   holdingProfit: '持有收益',
 };
@@ -289,13 +291,15 @@ export default function PcFundTable({
     if (vis && typeof vis === 'object' && Object.keys(vis).length > 0) {
       const next = { ...vis };
       if (next.relatedSector === undefined) next.relatedSector = false;
+      if (next.holdingDays === undefined) next.holdingDays = false;
       return next;
     }
     const allVisible = {};
     NON_FROZEN_COLUMN_IDS.forEach((id) => { allVisible[id] = true; });
     // 新增列：默认隐藏（用户可在表格设置中开启）
-    allVisible.relatedSector = false;
-    return allVisible;
+      allVisible.relatedSector = false;
+      allVisible.holdingDays = false;
+      return allVisible;
   })();
   const columnSizing = (() => {
     const s = currentGroupPc?.pcTableColumns;
@@ -367,6 +371,7 @@ export default function PcFundTable({
       allVisible[id] = true;
     });
     allVisible.relatedSector = false;
+    allVisible.holdingDays = false;
     setColumnVisibility(allVisible);
   };
   const handleToggleColumnVisibility = (columnId, visible) => {
@@ -850,6 +855,28 @@ export default function PcFundTable({
         },
       },
       {
+        accessorKey: 'holdingDays',
+        header: '持有天数',
+        size: 100,
+        minSize: 80,
+        cell: (info) => {
+          const original = info.row.original || {};
+          const value = original.holdingDaysValue;
+          if (value == null) {
+            return <div className="muted" style={{ textAlign: 'right', fontSize: '12px' }}>—</div>;
+          }
+          return (
+            <div style={{ fontWeight: 700, textAlign: 'right' }}>
+              {value}
+            </div>
+          );
+        },
+        meta: {
+          align: 'right',
+          cellClassName: 'holding-days-cell',
+        },
+      },
+      {
         accessorKey: 'todayProfit',
         header: '当日收益',
         size: 135,
@@ -867,7 +894,7 @@ export default function PcFundTable({
               <FitText className={cls} style={{ fontWeight: 700, display: 'block' }} maxFontSize={14} minFontSize={10}>
                 {masked && hasProfit ? <span className="mask-text">******</span> : amountStr}
               </FitText>
-              {percentStr && !isUpdated && !masked ? (
+              {percentStr && !masked ? (
                 <span className={`${cls} today-profit-percent`} style={{ display: 'block', fontSize: '0.75em', opacity: 0.9, fontWeight: 500 }}>
                   <FitText maxFontSize={11} minFontSize={9}>
                     {percentStr}

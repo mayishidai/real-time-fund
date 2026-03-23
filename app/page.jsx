@@ -600,26 +600,30 @@ export default function HomePage() {
 
       if (canCalcTodayProfit) {
         const amount = holding.share * currentNav;
-        // 优先用 zzl (真实涨跌幅), 降级用 gszzl
-        // 若 gztime 日期 > jzrq，说明估值更新晚于净值日期，优先使用 gszzl 计算当日盈亏
-        const gz = isString(fund.gztime) ? toTz(fund.gztime) : null;
-        const jz = isString(fund.jzrq) ? toTz(fund.jzrq) : null;
-        const preferGszzl =
-          !!gz &&
-          !!jz &&
-          gz.isValid() &&
-          jz.isValid() &&
-          gz.startOf('day').isAfter(jz.startOf('day'));
-
-        let rate;
-        if (preferGszzl) {
-          rate = Number(fund.gszzl);
+        // 优先使用昨日净值直接计算（更精确，避免涨跌幅四舍五入误差）
+        const lastNav = fund.lastNav != null && fund.lastNav !== '' ? Number(fund.lastNav) : null;
+        if (lastNav && Number.isFinite(lastNav) && lastNav > 0) {
+          profitToday = (currentNav - lastNav) * holding.share;
         } else {
-          const zzl = fund.zzl !== undefined ? Number(fund.zzl) : Number.NaN;
-          rate = Number.isFinite(zzl) ? zzl : Number(fund.gszzl);
+          const gz = isString(fund.gztime) ? toTz(fund.gztime) : null;
+          const jz = isString(fund.jzrq) ? toTz(fund.jzrq) : null;
+          const preferGszzl =
+            !!gz &&
+            !!jz &&
+            gz.isValid() &&
+            jz.isValid() &&
+            gz.startOf('day').isAfter(jz.startOf('day'));
+
+          let rate;
+          if (preferGszzl) {
+            rate = Number(fund.gszzl);
+          } else {
+            const zzl = fund.zzl !== undefined ? Number(fund.zzl) : Number.NaN;
+            rate = Number.isFinite(zzl) ? zzl : Number(fund.gszzl);
+          }
+          if (!Number.isFinite(rate)) rate = 0;
+          profitToday = amount - (amount / (1 + rate / 100));
         }
-        if (!Number.isFinite(rate)) rate = 0;
-        profitToday = amount - (amount / (1 + rate / 100));
       } else {
         profitToday = null;
       }
@@ -790,6 +794,9 @@ export default function HomePage() {
         const holdingAmount =
           amount == null ? '未设置' : `¥${amount.toFixed(2)}`;
         const holdingAmountValue = amount;
+        const holdingDaysValue = holding?.firstPurchaseDate
+          ? dayjs.tz(todayStr, TZ).diff(dayjs.tz(holding.firstPurchaseDate, TZ), 'day')
+          : null;
 
         const profitToday = profit ? profit.profitToday : null;
         const todayProfit =
@@ -865,6 +872,7 @@ export default function HomePage() {
           estimateProfitPercent,
           holdingAmount,
           holdingAmountValue,
+          holdingDaysValue,
           todayProfit,
           todayProfitPercent,
           todayProfitValue,
@@ -2407,6 +2415,29 @@ export default function HomePage() {
     setLoginLoading(false);
   };
 
+  const handleGithubLogin = async () => {
+    setLoginError('');
+    if (!isSupabaseConfigured) {
+      showToast('未配置 Supabase，无法登录', 'error');
+      return;
+    }
+    try {
+      isExplicitLoginRef.current = true;
+      setLoginLoading(true);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+      if (error) throw error;
+    } catch (err) {
+      setLoginError(err.message || 'GitHub 登录失败，请稍后再试');
+      isExplicitLoginRef.current = false;
+      setLoginLoading(false);
+    }
+  };
+
   // 登出
   const handleLogout = async () => {
     isLoggingOutRef.current = true;
@@ -3552,7 +3583,6 @@ export default function HomePage() {
 
   useEffect(() => {
     const isAnyModalOpen =
-      settingsOpen ||
       feedbackOpen ||
       addResultOpen ||
       addFundToGroupOpen ||
@@ -3588,7 +3618,6 @@ export default function HomePage() {
       containerRef.current.style.overflow = '';
     };
   }, [
-    settingsOpen,
     feedbackOpen,
     addResultOpen,
     addFundToGroupOpen,
@@ -4240,45 +4269,6 @@ export default function HomePage() {
                   navbarHeight={navbarHeight}
                 />
 
-              {currentTab !== 'all' && currentTab !== 'fav' && (
-                <motion.button
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="button-dashed"
-                  onClick={() => setAddFundToGroupOpen(true)}
-                  style={{
-                    width: '100%',
-                    height: '48px',
-                    border: '2px dashed var(--border)',
-                    background: 'transparent',
-                    borderRadius: '12px',
-                    color: 'var(--muted)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    marginBottom: '16px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    fontSize: '14px',
-                    fontWeight: 500
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--primary)';
-                    e.currentTarget.style.color = 'var(--primary)';
-                    e.currentTarget.style.background = 'rgba(34, 211, 238, 0.05)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border)';
-                    e.currentTarget.style.color = 'var(--muted)';
-                    e.currentTarget.style.background = 'transparent';
-                  }}
-                >
-                  <PlusIcon width="18" height="18" />
-                  <span>添加基金到此分组</span>
-                </motion.button>
-              )}
-
               <AnimatePresence mode="wait">
                 <motion.div
                   key={viewMode}
@@ -4491,6 +4481,45 @@ export default function HomePage() {
                   </div>
                 </motion.div>
               </AnimatePresence>
+
+              {currentTab !== 'all' && currentTab !== 'fav' && (
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="button-dashed"
+                  onClick={() => setAddFundToGroupOpen(true)}
+                  style={{
+                    width: '100%',
+                    height: '48px',
+                    border: '2px dashed var(--border)',
+                    background: 'transparent',
+                    borderRadius: '12px',
+                    color: 'var(--muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    marginTop: '16px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    fontSize: '14px',
+                    fontWeight: 500
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--primary)';
+                    e.currentTarget.style.color = 'var(--primary)';
+                    e.currentTarget.style.background = 'rgba(34, 211, 238, 0.05)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border)';
+                    e.currentTarget.style.color = 'var(--muted)';
+                    e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  <PlusIcon width="18" height="18" />
+                  <span>添加基金到此分组</span>
+                </motion.button>
+              )}
             </>
           )}
         </div>
@@ -4874,6 +4903,7 @@ export default function HomePage() {
             setLoginSuccess('');
             setLoginEmail('');
             setLoginOtp('');
+            setLoginLoading(false);
           }}
           loginEmail={loginEmail}
           setLoginEmail={setLoginEmail}
@@ -4884,6 +4914,7 @@ export default function HomePage() {
           loginSuccess={loginSuccess}
           handleSendOtp={handleSendOtp}
           handleVerifyEmailOtp={handleVerifyEmailOtp}
+          handleGithubLogin={isSupabaseConfigured ? handleGithubLogin : undefined}
         />
       )}
 
