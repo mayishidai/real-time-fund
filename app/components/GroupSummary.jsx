@@ -76,6 +76,7 @@ export default function GroupSummary({
   navbarHeight
 }) {
   const [showPercent, setShowPercent] = useState(true);
+  const [showTodayPercent, setShowTodayPercent] = useState(false);
   const [isMasked, setIsMasked] = useState(masked ?? false);
   const rowRef = useRef(null);
   const [assetSize, setAssetSize] = useState(24);
@@ -149,6 +150,7 @@ export default function GroupSummary({
     const roundedTotalProfitToday = Math.round(totalProfitToday * 100) / 100;
 
     const returnRate = totalCost > 0 ? (totalHoldingReturn / totalCost) * 100 : 0;
+    const todayReturnRate = totalCost > 0 ? (roundedTotalProfitToday / totalCost) * 100 : 0;
 
     return {
       totalAsset,
@@ -156,6 +158,7 @@ export default function GroupSummary({
       totalHoldingReturn,
       hasHolding,
       returnRate,
+      todayReturnRate,
       hasAnyTodayData,
     };
   }, [funds, holdings, getProfit]);
@@ -289,9 +292,17 @@ export default function GroupSummary({
             <div style={{ textAlign: 'right' }}>
               <div
                 className="muted"
-                style={{ fontSize: '12px', marginBottom: 4 }}
+                style={{
+                  fontSize: '12px',
+                  marginBottom: 4,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 2,
+                }}
               >
-                当日收益
+                当日收益{showTodayPercent ? '(%)' : ''}{' '}
+                <SwitchIcon style={{ opacity: 0.4 }} />
               </div>
               <div
                 className={
@@ -307,7 +318,10 @@ export default function GroupSummary({
                   fontSize: '18px',
                   fontWeight: 700,
                   fontFamily: 'var(--font-mono)',
+                  cursor: summary.hasAnyTodayData ? 'pointer' : 'default',
                 }}
+                onClick={() => summary.hasAnyTodayData && setShowTodayPercent(!showTodayPercent)}
+                title="点击切换金额/百分比"
               >
                 {isMasked ? (
                   <span className="mask-text" style={{ fontSize: metricSize }}>
@@ -322,10 +336,18 @@ export default function GroupSummary({
                           ? '-'
                           : ''}
                     </span>
-                    <CountUp
-                      value={Math.abs(summary.totalProfitToday)}
-                      style={{ fontSize: metricSize }}
-                    />
+                    {showTodayPercent ? (
+                      <CountUp
+                        value={Math.abs(summary.todayReturnRate)}
+                        suffix="%"
+                        style={{ fontSize: metricSize }}
+                      />
+                    ) : (
+                      <CountUp
+                        value={Math.abs(summary.totalProfitToday)}
+                        style={{ fontSize: metricSize }}
+                      />
+                    )}
                   </>
                 ) : (
                   <span style={{ fontSize: metricSize }}>--</span>
