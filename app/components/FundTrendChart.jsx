@@ -39,6 +39,18 @@ const CHART_COLORS = {
     border: '#1f2937',
     text: '#e5e7eb',
     crosshairText: '#0f172a',
+    grandLine: [
+      'rgba(34,211,238,0.55)',
+      'rgba(156,163,175,0.55)',
+      'rgba(251,146,60,0.55)',
+      'rgba(229,231,235,0.45)',
+    ],
+    grandLegend: [
+      'rgba(34,211,238,0.55)',
+      'rgba(156,163,175,0.55)',
+      'rgba(251,146,60,0.55)',
+      'rgba(229,231,235,0.45)',
+    ],
   },
   light: {
     danger: '#dc2626',
@@ -48,6 +60,18 @@ const CHART_COLORS = {
     border: '#e2e8f0',
     text: '#0f172a',
     crosshairText: '#ffffff',
+    grandLine: [
+      'rgba(8,145,178,0.5)',
+      'rgba(71,85,105,0.45)',
+      'rgba(249,115,22,0.5)',
+      'rgba(15,23,42,0.35)',
+    ],
+    grandLegend: [
+      'rgba(8,145,178,0.5)',
+      'rgba(71,85,105,0.45)',
+      'rgba(249,115,22,0.5)',
+      'rgba(15,23,42,0.35)',
+    ],
   }
 };
 
@@ -157,15 +181,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
 
     // 将 Data_grandTotal 的多条曲线按日期对齐到主 labels 上
     const labels = data.map(d => d.date);
-    // 对比线颜色：避免与主线红/绿（upColor/downColor）重复
-    // 第三条对比线需要在亮/暗主题下都足够清晰，因此使用高对比的橙色强调
-    const grandAccent3 = theme === 'light' ? '#f97316' : '#fb923c';
-    const grandColors = [
-      primaryColor,
-      chartColors.muted,
-      grandAccent3,
-      chartColors.text,
-    ];
+    const grandColors = chartColors.grandLine;
     // 隐藏第一条对比线（数据与图示）；第二条用原第一条颜色，第三条用原第二条，顺延
     const visibleGrandSeries = grandTotalSeries.filter((_, idx) => idx > 0);
     const grandDatasets = visibleGrandSeries.map((series, displayIdx) => {
@@ -199,7 +215,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
         data: seriesData,
         borderColor: color,
         backgroundColor: color,
-        borderWidth: 1.5,
+        borderWidth: 1,
         pointRadius: 0,
         pointHoverRadius: 3,
         fill: false,
@@ -620,13 +636,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
             .filter((_, idx) => idx > 0)
             .map((series, displayIdx) => {
               const idx = displayIdx + 1;
-              const legendAccent3 = theme === 'light' ? '#f97316' : '#fb923c';
-              const legendColors = [
-                primaryColor,
-                chartColors.muted,
-                legendAccent3,
-                chartColors.text,
-              ];
+              const legendColors = chartColors.grandLegend;
               const color = legendColors[displayIdx % legendColors.length];
               const key = `${series.name || 'series'}_${idx}`;
             const isHidden = hiddenGrandSeries.has(key);
