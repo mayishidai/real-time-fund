@@ -3,6 +3,7 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { isString } from 'lodash';
 import { cachedRequest, clearCachedRequest } from '../lib/cacheRequest';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -23,30 +24,105 @@ const toTz = (input) => (input ? dayjs.tz(input, TZ) : nowInTz());
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * 获取基金「关联板块/跟踪标的」信息（走本地 API，并做 1 天缓存）
- * 接口：/api/related-sectors?code=xxxxxx
- * 返回：{ code: string, relatedSectors: string }
+ * 获取基金「关联板块」：查询 Supabase `fund_related` 表（fund_code → related_sector），并做 1 天缓存
+ * 返回：展示用字符串，无数据或失败时为空字符串
+ * @param {string} [options.authSegment] - 与登录态绑定的缓存分段（如 user.id），避免未登录时缓存的空结果被登录后复用
  */
-export const fetchRelatedSectors = async (code, { cacheTime = ONE_DAY_MS } = {}) => {
+export const fetchRelatedSectors = async (code, { cacheTime = ONE_DAY_MS, authSegment = 'anon' } = {}) => {
   if (!code) return '';
   const normalized = String(code).trim();
   if (!normalized) return '';
+  if (!isSupabaseConfigured) return '';
 
-  const url = `/api/related-sectors?code=${encodeURIComponent(normalized)}`;
-  const cacheKey = `relatedSectors:${normalized}`;
+  const seg = authSegment != null && authSegment !== '' ? String(authSegment) : 'anon';
+  const cacheKey = `relatedSectors:${normalized}:${seg}`;
 
   try {
-    const data = await cachedRequest(async () => {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      return await res.json();
+    const relatedSectors = await cachedRequest(async () => {
+      const { data, error } = await supabase
+        .from('fund_related')
+        .select('related_sector')
+        .eq('fund_code', normalized)
+        .maybeSingle();
+
+      if (error || !data) return '';
+      const raw = data.related_sector;
+      return raw != null && raw !== '' ? String(raw).trim() : '';
     }, cacheKey, { cacheTime });
 
-    const relatedSectors = data?.relatedSectors;
-    return relatedSectors ? String(relatedSectors).trim() : '';
+    return relatedSectors || '';
   } catch (e) {
     return '';
   }
+};
+
+const SECTOR_QUOTE_CACHE_MS = 60 * 1000;
+
+/**
+ * 根据 `fund_secid.related_sector` 查询东方财富 secid（如 2.931066）
+ */
+export const fetchFundSecidByRelatedSector = async (relatedSector, { cacheTime = ONE_DAY_MS } = {}) => {
+  const normalized = relatedSector != null ? String(relatedSector).trim() : '';
+  if (!normalized || !isSupabaseConfigured) return '';
+
+  const cacheKey = `fundSecid:${normalized}`;
+  try {
+    const secid = await cachedRequest(async () => {
+      const { data, error } = await supabase
+        .from('fund_secid')
+        .select('secid')
+        .eq('related_sector', normalized)
+        .maybeSingle();
+
+      if (error || !data?.secid) return '';
+      return String(data.secid).trim();
+    }, cacheKey, { cacheTime });
+
+    return secid || '';
+  } catch (e) {
+    return '';
+  }
+};
+
+/**
+ * 东方财富 push2delay 板块/指数行情（涨跌幅等）
+ * @returns {{ name: string, code: string, pct: number|null }|null}
+ */
+export const fetchEastmoneySectorQuote = async (secid, { cacheTime = SECTOR_QUOTE_CACHE_MS } = {}) => {
+  const s = secid != null ? String(secid).trim() : '';
+  if (!s || typeof fetch === 'undefined') return null;
+
+  const cacheKey = `eastSectorQuote:${s}`;
+  try {
+    const quote = await cachedRequest(async () => {
+      const url = `https://push2delay.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(s)}&fields=f58,f57,f43,f170,f169,f124,f86`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const json = await res.json();
+      const d = json?.data;
+      if (!d) return null;
+      const f170 = d.f170;
+      const pct = f170 != null && Number.isFinite(Number(f170)) ? Number(f170) / 100 : null;
+      return {
+        name: d.f58 != null ? String(d.f58) : '',
+        code: d.f57 != null ? String(d.f57) : '',
+        pct,
+      };
+    }, cacheKey, { cacheTime });
+
+    return quote || null;
+  } catch (e) {
+    return null;
+  }
+};
+
+/**
+ * 关联板块名称 → 实时涨跌幅（先查 fund_secid，再拉东方财富）
+ */
+export const fetchRelatedSectorLiveQuote = async (relatedSectorLabel) => {
+  const secid = await fetchFundSecidByRelatedSector(relatedSectorLabel);
+  if (!secid) return null;
+  return fetchEastmoneySectorQuote(secid);
 };
 
 export const loadScript = (url) => {
@@ -159,6 +235,35 @@ const parseLatestNetValueFromLsjzContent = (content) => {
  * 解析历史净值数据（支持多条记录）
  * 返回按日期升序排列的净值数组
  */
+/**
+ * 根据 lsjz 升序净值列表推算「上一完整交易日」相对再前一日的涨跌幅与每份净值差（用于昨日收益）
+ */
+const computeYesterdayNavMetricsFromList = (navList) => {
+  const out = { yesterdayZzl: null, yesterdayNavDelta: null };
+  try {
+    const len = navList.length;
+    if (len < 2) return out;
+    const rowPrev = navList[len - 2];
+    out.yesterdayZzl = Number.isFinite(rowPrev?.growth) ? rowPrev.growth : null;
+    if (len >= 3) {
+      const navP = navList[len - 2].nav;
+      const navPP = navList[len - 3].nav;
+      if (Number.isFinite(navP) && Number.isFinite(navPP)) {
+        out.yesterdayNavDelta = navP - navPP;
+      }
+    } else if (len === 2) {
+      const r0 = navList[0];
+      const g = r0.growth;
+      if (Number.isFinite(g) && Number.isFinite(r0.nav)) {
+        out.yesterdayNavDelta = r0.nav - r0.nav / (1 + g / 100);
+      }
+    }
+  } catch {
+    return out;
+  }
+  return out;
+};
+
 const parseNetValuesFromLsjzContent = (content) => {
   if (!content || content.includes('暂无数据')) return [];
   const rowMatches = content.match(/<tr[\s\S]*?<\/tr>/gi) || [];
@@ -187,6 +292,44 @@ const parseNetValuesFromLsjzContent = (content) => {
   return results.reverse();
 };
 
+/**
+ * 按日期区间批量拉取历史净值（lsjz），支持分页，减少逐日请求次数。
+ * @param {string} code 基金代码
+ * @param {string} sdate 开始 YYYY-MM-DD
+ * @param {string} edate 结束 YYYY-MM-DD
+ * @returns {Promise<Array<{ date: string, nav: number, growth: number|null }>>} 按日期升序
+ */
+export const fetchFundNetValueRange = async (code, sdate, edate) => {
+  if (typeof window === 'undefined') return [];
+  if (!isString(code) || !String(code).trim()) return [];
+  if (!isString(sdate) || !isString(edate) || !/^\d{4}-\d{2}-\d{2}$/.test(sdate) || !/^\d{4}-\d{2}-\d{2}$/.test(edate)) {
+    return [];
+  }
+  if (sdate > edate) return [];
+
+  const c = String(code).trim();
+  const merged = new Map();
+  let pageNum = 1;
+  const per = 500;
+  while (true) {
+    const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${c}&page=${pageNum}&per=${per}&sdate=${sdate}&edate=${edate}`;
+    try {
+      const apidata = await loadScript(url);
+      const content = apidata?.content || '';
+      const batch = parseNetValuesFromLsjzContent(content);
+      if (!batch.length) break;
+      for (const row of batch) {
+        merged.set(row.date, row);
+      }
+      if (batch.length < per) break;
+      pageNum += 1;
+    } catch {
+      break;
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => a.date.localeCompare(b.date));
+};
+
 const extractHoldingsReportDate = (html) => {
   if (!html) return null;
 
@@ -206,34 +349,9 @@ const isLastQuarterReport = (reportDateStr) => {
   if (!report.isValid()) return false;
 
   const now = nowInTz();
-  const m = now.month(); // 0-11
-  const q = Math.floor(m / 3); // 当前季度 0-3 => Q1-Q4
-
-  let lastQ;
-  let year;
-  if (q === 0) {
-    // 当前为 Q1，则上一季度是上一年的 Q4
-    lastQ = 3;
-    year = now.year() - 1;
-  } else {
-    lastQ = q - 1;
-    year = now.year();
-  }
-
-  const quarterEnds = [
-    { month: 2, day: 31 }, // Q1 -> 03-31
-    { month: 5, day: 30 }, // Q2 -> 06-30
-    { month: 8, day: 30 }, // Q3 -> 09-30
-    { month: 11, day: 31 } // Q4 -> 12-31
-  ];
-
-  const { month: endMonth, day: endDay } = quarterEnds[lastQ];
-  const lastQuarterEnd = dayjs(
-    `${year}-${String(endMonth + 1).padStart(2, '0')}-${endDay}`,
-    'YYYY-MM-DD'
-  );
-
-  return report.isSame(lastQuarterEnd, 'day');
+  // 允许最近 6 个月内的报告（覆盖上一季度 + 上上季度，兼容披露延迟）
+  const sixMonthsAgo = now.subtract(6, 'month');
+  return report.isAfter(sixMonthsAgo) && report.isBefore(now.add(7, 'day'));
 };
 
 export const fetchSmartFundNetValue = async (code, startDate) => {
@@ -294,12 +412,13 @@ export const fetchFundDataFallback = async (c) => {
     }
     try {
       // fallback 同样取最近两天净值，以补齐 lastNav（用于更精确的当日收益计算）
-      const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${c}&page=1&per=2&sdate=&edate=`;
+      const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${c}&page=1&per=3&sdate=&edate=`;
       const apidata = await loadScript(url);
       const content = apidata?.content || '';
       const navList = parseNetValuesFromLsjzContent(content);
       const latest = navList.length > 0 ? navList[navList.length - 1] : null;
       const previousNav = navList.length > 1 ? navList[navList.length - 2] : null;
+      const yM = computeYesterdayNavMetricsFromList(navList);
       if (latest && latest.nav) {
         const name = fundName || `未知基金(${c})`;
         resolve({
@@ -312,6 +431,8 @@ export const fetchFundDataFallback = async (c) => {
           jzrq: latest.date,
           gszzl: null,
           zzl: Number.isFinite(latest.growth) ? latest.growth : null,
+          yesterdayZzl: yM.yesterdayZzl,
+          yesterdayNavDelta: yM.yesterdayNavDelta,
           noValuation: true,
           holdings: [],
           holdingsReportDate: null,
@@ -352,7 +473,7 @@ export const fetchFundData = async (c) => {
         gszzl: Number.isFinite(gszzlNum) ? gszzlNum : json.gszzl
       };
       const lsjzPromise = new Promise((resolveT) => {
-        const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${c}&page=1&per=2&sdate=&edate=`;
+        const url = `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${c}&page=1&per=3&sdate=&edate=`;
         loadScript(url)
           .then((apidata) => {
             const content = apidata?.content || '';
@@ -360,11 +481,14 @@ export const fetchFundData = async (c) => {
             if (navList.length > 0) {
               const latest = navList[navList.length - 1];
               const previousNav = navList.length > 1 ? navList[navList.length - 2] : null;
+              const yM = computeYesterdayNavMetricsFromList(navList);
               resolveT({
                 dwjz: String(latest.nav),
                 zzl: Number.isFinite(latest.growth) ? latest.growth : null,
                 jzrq: latest.date,
-                lastNav: previousNav ? String(previousNav.nav) : null
+                lastNav: previousNav ? String(previousNav.nav) : null,
+                yesterdayZzl: yM.yesterdayZzl,
+                yesterdayNavDelta: yM.yesterdayNavDelta,
               });
             } else {
               resolveT(null);
@@ -546,6 +670,12 @@ export const fetchFundData = async (c) => {
             gzData.jzrq = tData.jzrq;
             gzData.zzl = tData.zzl;
             gzData.lastNav = tData.lastNav;
+          }
+          if (Object.prototype.hasOwnProperty.call(tData, 'yesterdayZzl')) {
+            gzData.yesterdayZzl = tData.yesterdayZzl;
+          }
+          if (Object.prototype.hasOwnProperty.call(tData, 'yesterdayNavDelta')) {
+            gzData.yesterdayNavDelta = tData.yesterdayNavDelta;
           }
         }
         resolve({
@@ -867,6 +997,59 @@ export const fetchFundPingzhongdata = async (fundCode, { cacheTime = 60 * 60 * 1
   }
 };
 
+function parsePingzhongSylNumber(raw) {
+  if (raw == null || raw === '') return null;
+  const n = Number(String(raw).replace(/%/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 用净值走势估算「近一周」涨跌幅：最新净值相对约 7 个自然日前最近一条净值。
+ * pingzhongdata 另提供 syl_6y（近六月）等；近周无独立字段，由走势推算。
+ */
+export function computeWeekReturnFromNetWorthTrend(trend) {
+  if (!Array.isArray(trend) || trend.length < 2) return null;
+  const valid = trend
+    .filter((d) => d && typeof d.x === 'number' && Number.isFinite(Number(d.y)))
+    .sort((a, b) => a.x - b.x);
+  if (valid.length < 2) return null;
+  const latest = valid[valid.length - 1];
+  const latestMs = latest.x;
+  const latestNav = Number(latest.y);
+  if (!Number.isFinite(latestNav) || latestNav === 0) return null;
+  const cutoff = latestMs - 7 * 24 * 60 * 60 * 1000;
+  let before = null;
+  for (const d of valid) {
+    if (d.x <= cutoff) before = d;
+    else break;
+  }
+  if (!before) before = valid[0];
+  const firstNav = Number(before.y);
+  if (!Number.isFinite(firstNav) || firstNav === 0) return null;
+  return ((latestNav - firstNav) / firstNav) * 100;
+}
+
+/**
+ * 基金阶段涨跌幅（东方财富 pingzhongdata：近一月/三月/六月/一年为接口字段；近一周由净值走势推算）
+ * @returns {Promise<{ week: number|null, month: number|null, month3: number|null, month6: number|null, year1: number|null }>}
+ */
+export async function fetchFundPeriodReturns(fundCode, { cacheTime = 60 * 60 * 1000 } = {}) {
+  const empty = { week: null, month: null, month3: null, month6: null, year1: null };
+  if (!fundCode) return empty;
+  try {
+    const pz = await fetchFundPingzhongdata(fundCode, { cacheTime });
+    return {
+      week: computeWeekReturnFromNetWorthTrend(pz?.Data_netWorthTrend),
+      month: parsePingzhongSylNumber(pz?.syl_1y),
+      month3: parsePingzhongSylNumber(pz?.syl_3y),
+      month6: parsePingzhongSylNumber(pz?.syl_6y),
+      year1: parsePingzhongSylNumber(pz?.syl_1n),
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export const fetchFundHistory = async (code, range = '1m') => {
   if (typeof window === 'undefined') return [];
 
@@ -949,8 +1132,8 @@ export const fetchFundHistory = async (code, range = '1m') => {
 };
 
 const API_KEYS = [
-  'sk-c5e4a1d4050c439a694f6f9242f163c7',
-  'sk-8b3b21781fdec7008323f8993e81e0d2'
+  'sk-80bcd8ff8ef1445d9154e083e50f07f7',
+  'sk-3ac5fb4f738f042d50c4f64d0c88067f'
   // 添加更多 API Key 到这里
 ];
 

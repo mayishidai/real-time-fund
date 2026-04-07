@@ -30,6 +30,7 @@ function parseVhToPx(vhStr) {
   if (typeof vhStr === "number") return vhStr
   const match = String(vhStr).match(/^([\d.]+)\s*vh$/)
   if (!match) return null
+  if (typeof window === "undefined") return null
   return (window.innerHeight * Number(match[1])) / 100
 }
 

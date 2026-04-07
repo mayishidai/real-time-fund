@@ -23,11 +23,7 @@ export default function EmptyStateCard({
       <div className="muted" style={{ marginBottom: 20 }}>
         {isEmpty ? '尚未添加基金' : '该分组下暂无数据'}
       </div>
-      {isGroupTab && fundsLength > 0 && (
-        <button className="button" onClick={onAddToGroup}>
-          添加基金到此分组
-        </button>
-      )}
+      {/* 删除“添加基金到此分组”入口：分组加基金统一走搜索/导入 */}
     </div>
   );
 }

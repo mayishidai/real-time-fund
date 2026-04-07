@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const ANNOUNCEMENT_KEY = 'hasClosedAnnouncement_v20';
+const ANNOUNCEMENT_KEY = 'hasClosedAnnouncement_v21';
 
 export default function Announcement() {
   const [isVisible, setIsVisible] = useState(false);
@@ -75,15 +75,15 @@ export default function Announcement() {
               <span>公告</span>
             </div>
             <div style={{ color: 'var(--text)', lineHeight: '1.6', fontSize: '15px', overflowY: 'auto', minHeight: 0, flex: 1, paddingRight: '4px' }}>
-              <p>v0.2.9 更新内容：</p>
-              <p>1. 排序新增按昨日涨幅排序。</p>
-              <p>2. 排序个性化设置支持切换排序形式。</p>
-              <p>3. 全局设置新增显示/隐藏大盘指数。</p>
-              <p>4. 新增持有天数。</p>
-              <p>5. 登录方式支持 Github。</p>
+              <p>v1.0.0 迎来比较大的变化,更新内容如下：</p>
+              <p>1. 完善关联板块及板块估值数据。</p>
+              <p>2. 分组持仓数据独立。</p>
+              <p>3. 新增底部导航栏。</p>
+              <p>4. 新增我的收益展示。</p>
+              <p>5. 新增昨日收益、近1周、近一月等列。</p>
+              <p>6. 新增移动端批量删除(长按表格行触发)。</p>
               <br/>
-              关联板块实时估值还在测试，会在近期上线。
-              <p>如有建议和问题，欢迎进用户支持群反馈。</p>
+              <p>该版本调整较多,如有建议和问题，欢迎进用户支持群反馈。</p>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>

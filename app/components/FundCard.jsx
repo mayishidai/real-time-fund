@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -10,9 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Stat } from './Common';
 import FundTrendChart from './FundTrendChart';
 import FundIntradayChart from './FundIntradayChart';
+import FundDailyEarnings from './FundDailyEarnings';
 import {
   ChevronIcon,
-  ExitIcon,
   SettingsIcon,
   StarIcon,
   SwitchIcon,
@@ -52,17 +53,18 @@ export default function FundCard({
   favorites,
   dcaPlans,
   holdings,
+  fundDailyEarnings,
   percentModes,
   todayPercentModes,
   valuationSeries,
   collapsedCodes,
   collapsedTrends,
+  collapsedEarnings,
   transactions,
   theme,
   isTradingDay,
   refreshing,
   getHoldingProfit,
-  onRemoveFromGroup,
   onToggleFavorite,
   onRemoveFund,
   onHoldingClick,
@@ -71,12 +73,40 @@ export default function FundCard({
   onTodayPercentModeToggle,
   onToggleCollapse,
   onToggleTrendCollapse,
+  onToggleEarningsCollapse,
   layoutMode = 'card', // 'card' | 'drawer'，drawer 时前10重仓与业绩走势以 Tabs 展示
   masked = false,
 }) {
   const holding = holdings[f?.code];
   const profit = getHoldingProfit?.(f, holding) ?? null;
   const hasHoldings = f.holdingsIsLastQuarter && Array.isArray(f.holdings) && f.holdings.length > 0;
+  // “我的收益”(每日收益)只依赖份额；成本价缺失也应可展示
+  const hasHoldingShare =
+    holding &&
+    isNumber(holding.share) &&
+    holding.share > 0;
+
+  // 兼容旧逻辑：部分 UI 仍需要“持仓金额/成本”完整信息
+  const hasHoldingAmount =
+    !!profit &&
+    holding &&
+    isNumber(holding.share) &&
+    holding.share > 0 &&
+    isNumber(holding.cost) &&
+    holding.cost > 0;
+
+  const dailyEarningsSeries = useMemo(() => {
+    if (!hasHoldingShare) return [];
+    const list = fundDailyEarnings?.[f?.code];
+    return Array.isArray(list) ? list : [];
+  }, [fundDailyEarnings, f?.code, hasHoldingShare]);
+
+  const displayDailyEarningsSeries = useMemo(() => {
+    if (!hasHoldingShare) return [];
+    return dailyEarningsSeries;
+  }, [dailyEarningsSeries, hasHoldingShare]);
+
+  const showFavoriteButton = currentTab === 'all' || currentTab === 'fav';
 
   const style = layoutMode === 'drawer' ? {
     border: 'none',
@@ -97,19 +127,7 @@ export default function FundCard({
     >
       <div className="row" style={{ marginBottom: 10 }}>
         <div className="title">
-          {currentTab !== 'all' && currentTab !== 'fav' ? (
-            <button
-              className="icon-button fav-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemoveFromGroup?.(f.code);
-              }}
-              style={{backgroundColor: 'transparent'}}
-              title="从当前分组移除"
-            >
-              <ExitIcon width="18" height="18" style={{ transform: 'rotate(180deg)' }} />
-            </button>
-          ) : (
+          {showFavoriteButton ? (
             <button
               className={`icon-button fav-button ${favorites?.has(f.code) ? 'active' : ''}`}
               onClick={(e) => {
@@ -120,7 +138,7 @@ export default function FundCard({
             >
               <StarIcon width="18" height="18" filled={favorites?.has(f.code)} />
             </button>
-          )}
+          ) : null}
           <div className="title-text">
             <span
               className="name-text"
@@ -197,7 +215,7 @@ export default function FundCard({
 
               if (shouldHideChange) return null;
 
-              const changeLabel = hasTodayData ? '涨跌幅' : '昨日涨幅';
+              const changeLabel = hasTodayData ? '涨跌幅' : '最新涨幅';
               return (
                 <Stat
                   label={changeLabel}
@@ -217,7 +235,7 @@ export default function FundCard({
               }
             />
             <Stat
-              label="估值涨幅"
+              label="估算涨幅"
               value={
                 f.estPricedCoverage > 0.05
                   ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%`
@@ -418,12 +436,26 @@ export default function FundCard({
       })()}
 
       {layoutMode === 'drawer' ? (
-        <Tabs defaultValue={hasHoldings ? 'holdings' : 'trend'} className="w-full">
-          <TabsList className={`w-full ${hasHoldings ? 'grid grid-cols-2' : ''}`}>
+        <Tabs
+          defaultValue={hasHoldings ? 'holdings' : 'trend'}
+          className="w-full"
+        >
+          <TabsList
+            className={`w-full ${
+              hasHoldings && hasHoldingAmount
+                ? 'grid grid-cols-3'
+                : hasHoldings || hasHoldingAmount
+                  ? 'grid grid-cols-2'
+                  : ''
+            }`}
+          >
             {hasHoldings && (
               <TabsTrigger value="holdings">前10重仓股票</TabsTrigger>
             )}
             <TabsTrigger value="trend">业绩走势</TabsTrigger>
+            {hasHoldingAmount && (
+              <TabsTrigger value="earnings">我的收益</TabsTrigger>
+            )}
           </TabsList>
           {hasHoldings && (
             <TabsContent value="holdings" className="mt-3 outline-none">
@@ -455,6 +487,11 @@ export default function FundCard({
                   </div>
                 ))}
               </div>
+            </TabsContent>
+          )}
+          {hasHoldingAmount && (
+            <TabsContent value="earnings" className="mt-3 outline-none">
+              <FundDailyEarnings series={displayDailyEarningsSeries} theme={theme} masked={masked} />
             </TabsContent>
           )}
           <TabsContent value="trend" className="mt-3 outline-none">
@@ -539,6 +576,46 @@ export default function FundCard({
             transactions={profit ? (transactions?.[f.code] || []) : []}
             theme={theme}
           />
+          {hasHoldingAmount && (
+            <>
+              <div
+                style={{ marginTop: 10, marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}
+                className="title"
+                onClick={() => onToggleEarningsCollapse?.(f.code)}
+              >
+                <div className="row" style={{ width: '100%', flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>我的收益</span>
+                    <ChevronIcon
+                      width="16"
+                      height="16"
+                      className="muted"
+                      style={{
+                        transform: !collapsedEarnings?.has(f.code) ? 'rotate(0deg)' : 'rotate(-90deg)',
+                        transition: 'transform 0.2s ease',
+                      }}
+                    />
+                  </div>
+                  <span className="muted" style={{ fontSize: 11 }}>
+                    {dailyEarningsSeries.length > 0 ? `共 ${dailyEarningsSeries.length} 天` : '未记录'}
+                  </span>
+                </div>
+              </div>
+              <AnimatePresence>
+                {!collapsedEarnings?.has(f.code) && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <FundDailyEarnings series={displayDailyEarningsSeries} theme={theme} masked={masked} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          )}
         </>
       )}
     </motion.div>

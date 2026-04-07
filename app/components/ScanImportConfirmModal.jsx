@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { CloseIcon } from './Icons';
 import {
@@ -20,10 +20,14 @@ export default function ScanImportConfirmModal({
   onConfirm,
   refreshing,
   groups = [],
+  existingAllCodes = [],
+  existingFavCodes = [],
   isOcrScan = false
 }) {
   const [selectedGroupId, setSelectedGroupId] = useState('all');
   const [expandAfterAdd, setExpandAfterAdd] = useState(true);
+  const allCodeSet = useMemo(() => new Set((existingAllCodes || []).filter(Boolean)), [existingAllCodes]);
+  const favCodeSet = useMemo(() => new Set((existingFavCodes || []).filter(Boolean)), [existingFavCodes]);
 
   const handleConfirm = () => {
     onConfirm(selectedGroupId, expandAfterAdd);
@@ -75,9 +79,23 @@ export default function ScanImportConfirmModal({
             <div className="search-results pending-list" style={{ maxHeight: 360, overflowY: 'auto' }}>
               {scannedFunds.map((item) => {
                 const isSelected = selectedScannedCodes.has(item.code);
-                const isAlreadyAdded = item.status === 'added';
                 const isInvalid = item.status === 'invalid';
-                const isDisabled = isAlreadyAdded || isInvalid;
+                const targetGroup = selectedGroupId;
+                const inAll = allCodeSet.has(item.code);
+                const inFav = favCodeSet.has(item.code);
+                const groupCodes = targetGroup && targetGroup !== 'all' && targetGroup !== 'fav'
+                  ? (groups.find((g) => g.id === targetGroup)?.codes || [])
+                  : [];
+                const inGroup = targetGroup && targetGroup !== 'all' && targetGroup !== 'fav'
+                  ? groupCodes.includes(item.code)
+                  : false;
+                const isAlreadyInTarget =
+                  targetGroup === 'all'
+                    ? inAll
+                    : targetGroup === 'fav'
+                      ? inFav
+                      : inGroup;
+                const isDisabled = isAlreadyInTarget || isInvalid;
                 const displayName = item.name || (isInvalid ? '未找到基金' : '未知基金');
                 const holdAmounts = formatAmount(item.holdAmounts);
                 const holdGains = formatAmount(item.holdGains);
@@ -85,7 +103,7 @@ export default function ScanImportConfirmModal({
                 return (
                   <div
                     key={item.code}
-                    className={`search-item ${isSelected ? 'selected' : ''} ${isAlreadyAdded ? 'added' : ''}`}
+                    className={`search-item ${isSelected ? 'selected' : ''} ${isAlreadyInTarget ? 'added' : ''}`}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       if (isDisabled) return;
@@ -98,7 +116,7 @@ export default function ScanImportConfirmModal({
                         <span className="fund-name">{displayName}</span>
                         <span className="fund-code muted">#{item.code}</span>
                       </div>
-                      {isAlreadyAdded ? (
+                      {isAlreadyInTarget ? (
                         <span className="added-label">已添加</span>
                       ) : isInvalid ? (
                         <span className="added-label">未找到</span>

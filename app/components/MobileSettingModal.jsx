@@ -189,7 +189,7 @@ export default function MobileSettingModal({
                         )}
                         {item.id === 'relatedSector' && (
                           <span className="muted" style={{ fontSize: '12px' }}>
-                            仅 fund.cc.cd 地址支持
+                            需登录账号
                           </span>
                         )}
                       </div>
