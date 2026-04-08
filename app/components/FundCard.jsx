@@ -107,6 +107,16 @@ export default function FundCard({
   }, [dailyEarningsSeries, hasHoldingShare]);
 
   const showFavoriteButton = currentTab === 'all' || currentTab === 'fav';
+  const relatedSectorRaw = f?.relatedSector != null ? String(f.relatedSector).trim() : '';
+  const relatedSectorQuoteName = f?.relatedSectorQuoteName != null
+    ? String(f.relatedSectorQuoteName).trim()
+    : '';
+  const relatedSectorDisplay = relatedSectorQuoteName || relatedSectorRaw;
+  const relatedSectorPctValue = f?.relatedSectorQuotePct == null ? null : Number(f.relatedSectorQuotePct);
+  const hasRelatedSectorPct = relatedSectorPctValue != null && Number.isFinite(relatedSectorPctValue);
+  const relatedSectorPctText = hasRelatedSectorPct
+    ? `${relatedSectorPctValue > 0 ? '+' : ''}${relatedSectorPctValue.toFixed(2)}%`
+    : '';
 
   const style = layoutMode === 'drawer' ? {
     border: 'none',
@@ -248,6 +258,37 @@ export default function FundCard({
           </>
         )}
       </div>
+
+      {(relatedSectorDisplay || hasRelatedSectorPct) && (
+        <div className="row" style={{ marginBottom: 12 }}>
+          {relatedSectorDisplay ? (
+            <div className="stat" style={{ flexDirection: 'column', gap: 4, minWidth: 0 }}>
+              <span className="label">关联板块</span>
+              <span
+                className="value"
+                title={relatedSectorDisplay}
+                style={{
+                  fontSize: '15px',
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: '100%',
+                }}
+              >
+                {relatedSectorDisplay}
+              </span>
+            </div>
+          ) : null}
+          {hasRelatedSectorPct ? (
+            <Stat
+              label="关联涨幅"
+              value={relatedSectorPctText}
+              delta={relatedSectorPctValue}
+            />
+          ) : null}
+        </div>
+      )}
 
       <div className="row" style={{ marginBottom: 12 }}>
         {!profit ? (

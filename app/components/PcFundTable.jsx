@@ -39,20 +39,20 @@ import { fetchFundPeriodReturns, fetchRelatedSectors, fetchRelatedSectorLiveQuot
 
 const NON_FROZEN_COLUMN_IDS = [
   'relatedSector',
+  'yesterdayChangePercent',
+  'estimateChangePercent',
+  'todayProfit',
+  'totalChangePercent',
+  'yesterdayProfit',
+  'holdingProfit',
+  'latestNav',
+  'holdingDays',
   'period1w',
   'period1m',
   'period3m',
   'period6m',
   'period1y',
-  'yesterdayChangePercent',
-  'estimateChangePercent',
-  'totalChangePercent',
   'holdingAmount',
-  'holdingDays',
-  'todayProfit',
-  'yesterdayProfit',
-  'holdingProfit',
-  'latestNav',
   'estimateNav',
 ];
 
@@ -210,7 +210,8 @@ export default function PcFundTable({
   const groupKey = currentTab ?? 'all';
 
   const isGroupTab = currentTab && currentTab !== 'all' && currentTab !== 'fav';
-  const batchRemoveEnabled = isGroupTab && sortBy === 'default';
+  // 批量删除：之前仅自定义分组支持，这里扩展到「全部 / 自选 / 自定义分组」
+  const batchRemoveEnabled = sortBy === 'default' && (currentTab === 'all' || currentTab === 'fav' || isGroupTab);
   const selectableCodes = useMemo(
     () => (Array.isArray(data) ? data.map((d) => d?.code).filter(Boolean) : []),
     [data],
@@ -220,6 +221,10 @@ export default function PcFundTable({
   useEffect(() => {
     setSelectedCodes(new Set());
   }, [currentTab]);
+
+  useEffect(() => {
+    if (!batchRemoveEnabled) setSelectedCodes(new Set());
+  }, [batchRemoveEnabled]);
 
   useEffect(() => {
     setSelectedCodes((prev) => {
@@ -348,28 +353,14 @@ export default function PcFundTable({
     const vis = currentGroupPc?.pcTableColumnVisibility ?? null;
     if (vis && typeof vis === 'object' && Object.keys(vis).length > 0) {
       const next = { ...vis };
-      if (next.relatedSector === undefined) next.relatedSector = false;
-      if (next.holdingDays === undefined) next.holdingDays = false;
-      if (next.period1w === undefined) next.period1w = false;
-      if (next.period1m === undefined) next.period1m = false;
-      if (next.period3m === undefined) next.period3m = false;
-      if (next.period6m === undefined) next.period6m = false;
-      if (next.period1y === undefined) next.period1y = false;
-      if (next.yesterdayProfit === undefined) next.yesterdayProfit = false;
+      NON_FROZEN_COLUMN_IDS.forEach((id) => {
+        if (next[id] === undefined) next[id] = true;
+      });
       return next;
     }
     const allVisible = {};
     NON_FROZEN_COLUMN_IDS.forEach((id) => { allVisible[id] = true; });
-    // 新增列：默认隐藏（用户可在表格设置中开启）
-      allVisible.relatedSector = false;
-      allVisible.holdingDays = false;
-      allVisible.period1w = false;
-      allVisible.period1m = false;
-      allVisible.period3m = false;
-      allVisible.period6m = false;
-      allVisible.period1y = false;
-      allVisible.yesterdayProfit = false;
-      return allVisible;
+    return allVisible;
   })();
   const columnSizing = (() => {
     const s = currentGroupPc?.pcTableColumns;
@@ -440,14 +431,6 @@ export default function PcFundTable({
     NON_FROZEN_COLUMN_IDS.forEach((id) => {
       allVisible[id] = true;
     });
-    allVisible.relatedSector = false;
-    allVisible.holdingDays = false;
-    allVisible.period1w = false;
-    allVisible.period1m = false;
-    allVisible.period3m = false;
-    allVisible.period6m = false;
-    allVisible.period1y = false;
-    allVisible.yesterdayProfit = false;
     setColumnVisibility(allVisible);
   };
   const handleToggleColumnVisibility = (columnId, visible) => {
@@ -627,6 +610,37 @@ export default function PcFundTable({
     return () => { cancelled = true; };
   }, [relatedSectorEnabled, data, relatedSectorByCode]);
 
+  const withRelatedSectorFund = useCallback(
+    (row) => {
+      if (!row || !row.code) return row;
+      const rawValue = relatedSectorByCode?.[row.code] ?? relatedSectorCacheRef.current.get(row.code) ?? '';
+      const relatedSector = rawValue != null ? String(rawValue).trim() : '';
+      const quote = relatedSector ? sectorQuoteByLabel?.[relatedSector] : null;
+      const quoteName = quote?.name != null ? String(quote.name).trim() : '';
+      const quotePct = quote?.pct == null ? null : Number(quote.pct);
+      const hasQuotePct = quotePct != null && Number.isFinite(quotePct);
+
+      return {
+        ...row,
+        rawFund: {
+          ...(row.rawFund || { code: row.code, name: row.fundName }),
+          relatedSector,
+          relatedSectorQuoteName: quoteName,
+          relatedSectorQuotePct: hasQuotePct ? quotePct : null,
+        },
+      };
+    },
+    [relatedSectorByCode, sectorQuoteByLabel],
+  );
+
+  const getFundCardPropsWithRelatedSector = useCallback(
+    (row) => {
+      if (!getFundCardProps) return {};
+      return getFundCardProps(withRelatedSectorFund(row));
+    },
+    [getFundCardProps, withRelatedSectorFund],
+  );
+
   const periodReturnsEnabled =
     columnVisibility?.period1w !== false
     || columnVisibility?.period1m !== false
@@ -708,19 +722,7 @@ export default function PcFundTable({
 
     return (
       <div className="name-cell-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }}>
-        {sortBy === 'default' && (
-          <button
-            className="icon-button drag-handle"
-            ref={rowContext?.setActivatorNodeRef}
-            {...rowContext?.listeners}
-            style={{ cursor: 'grab', width: 20, height: 20, padding: 2, margin: '0', flexShrink: 0, color: 'var(--muted)', background: 'transparent', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            title="拖拽排序"
-            onClick={(e) => e.stopPropagation?.()}
-          >
-            <DragIcon width="16" height="16" />
-          </button>
-        )}
-        {batchRemoveEnabled && (
+                {batchRemoveEnabled && (
           <label
             title="选择用于批量删除"
             onClick={(e) => e.stopPropagation?.()}
@@ -749,7 +751,19 @@ export default function PcFundTable({
             />
           </label>
         )}
-        {!isGroupTab ? (
+        {sortBy === 'default' && (
+          <button
+            className="icon-button drag-handle"
+            ref={rowContext?.setActivatorNodeRef}
+            {...rowContext?.listeners}
+            style={{ cursor: 'grab', width: 20, height: 20, padding: 2, margin: '0', flexShrink: 0, color: 'var(--muted)', background: 'transparent', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="拖拽排序"
+            onClick={(e) => e.stopPropagation?.()}
+          >
+            <DragIcon width="16" height="16" />
+          </button>
+        )}
+        {!isGroupTab && !batchRemoveEnabled ? (
           <button
             className={`icon-button fav-button ${isFavorites ? 'active' : ''}`}
             onClick={(e) => {
@@ -1738,7 +1752,12 @@ export default function PcFundTable({
         )}
       </div>
       {!!(cardDialogRow && getFundCardProps) && (
-        <FundDetailDialog blockDialogClose={blockDialogClose} cardDialogRow={cardDialogRow} getFundCardProps={getFundCardProps} setCardDialogRow={setCardDialogRow} />
+        <FundDetailDialog
+          blockDialogClose={blockDialogClose}
+          cardDialogRow={cardDialogRow}
+          getFundCardProps={getFundCardPropsWithRelatedSector}
+          setCardDialogRow={setCardDialogRow}
+        />
       )}
       <PcTableSettingModal
         open={settingModalOpen}

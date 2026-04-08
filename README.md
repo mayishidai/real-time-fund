@@ -150,6 +150,24 @@
 
    执行成功后，可在 Table Editor 中看到 `user_configs` 表。
 
+8. 导入关联板块数据（可选）
+
+   项目支持展示基金追踪的关联板块（如指数、行业板块）及其实时涨跌幅。该功能依赖两张数据表：
+   - `fund_related`：基金代码 → 关联板块名称映射
+   - `fund_secid`：关联板块名称 → 东方财富 secid 映射
+
+   这两张表已在 `/doc/supabase.sql` 中创建，数据源位于 `/doc` 目录：
+   - `fund_tracking_targets.csv`：基金追踪目标数据
+   - `related_sector_secid.csv`：关联板块 secid 映射数据
+
+   **导入步骤：**
+   - Supabase控制台 → Table Editor → 选择 `fund_related` 表
+   - 点击右上角 **Insert** → **Import data from CSV**
+   - 上传 `fund_tracking_targets.csv` 文件，确认列映射后点击 **Import**
+   - 同理，向 `fund_secid` 表导入 `related_sector_secid.csv` 文件
+
+   导入成功后，基金卡片将展示其追踪的关联板块及实时涨跌幅。
+
 更多 Supabase 相关内容查阅官方文档。
 
 ### 构建与部署
