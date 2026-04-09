@@ -88,12 +88,7 @@ function Field({
       role="group"
       data-slot="field"
       data-orientation={orientation}
-      className={cn(
-        fieldVariants({ orientation }),
-        // iOS 聚焦时若输入框字体 < 16px 会触发缩放，小屏下强制 16px 避免缩放
-        "max-md:[&_input]:text-base max-md:[&_textarea]:text-base max-md:[&_select]:text-base",
-        className
-      )}
+      className={cn(fieldVariants({ orientation }), className)}
       {...props} />
   );
 }

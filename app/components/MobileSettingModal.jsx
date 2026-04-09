@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AnimatePresence, Reorder } from 'framer-motion';
+import { AnimatePresence, Reorder, useDragControls } from 'framer-motion';
 import {
   Drawer,
   DrawerContent,
@@ -27,6 +27,82 @@ import { CloseIcon, DragIcon, ResetIcon, SettingsIcon } from './Icons';
  * @param {boolean} [props.showFullFundName] - 是否展示完整基金名称
  * @param {(show: boolean) => void} [props.onToggleShowFullFundName] - 切换是否展示完整基金名称回调
  */
+function MobileSettingReorderItem({
+  item,
+  index,
+  columnVisibility,
+  onToggleColumnVisibility,
+  setIsReordering,
+}) {
+  const dragControls = useDragControls();
+
+  return (
+    <Reorder.Item
+      key={item.id || `col-${index}`}
+      value={item}
+      className="mobile-setting-item glass"
+      layout
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      onDragStart={() => setIsReordering(true)}
+      onDragEnd={() => setIsReordering(false)}
+      transition={{
+        type: 'spring',
+        stiffness: 500,
+        damping: 35,
+        mass: 1,
+        layout: { duration: 0.2 },
+      }}
+      style={{ touchAction: 'pan-y' }}
+      dragListener={false}
+      dragControls={dragControls}
+    >
+      <div
+        className="drag-handle"
+        style={{
+          cursor: 'grab',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 8px',
+          color: 'var(--muted)',
+          touchAction: 'none',
+        }}
+        onPointerDown={(e) => {
+          dragControls.start(e);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label="拖拽排序"
+      >
+        <DragIcon width="18" height="18" />
+      </div>
+      <div style={{ flex: 1, fontSize: '14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span>{item.header}</span>
+        {item.id === 'totalChangePercent' && (
+          <span className="muted" style={{ fontSize: '12px' }}>
+            估值涨幅与持有收益的汇总
+          </span>
+        )}
+        {item.id === 'relatedSector' && (
+          <span className="muted" style={{ fontSize: '12px' }}>
+            需登录账号
+          </span>
+        )}
+      </div>
+      {onToggleColumnVisibility && (
+        <Switch
+          checked={columnVisibility?.[item.id] !== false}
+          onCheckedChange={(checked) => {
+            onToggleColumnVisibility(item.id, !!checked);
+          }}
+          title={columnVisibility?.[item.id] === false ? '显示' : '隐藏'}
+        />
+      )}
+    </Reorder.Item>
+  );
+}
+
 export default function MobileSettingModal({
   open,
   onClose,
@@ -145,64 +221,18 @@ export default function MobileSettingModal({
                 onReorder={handleReorder}
                 className="mobile-setting-list"
                 layoutScroll
-                style={{ touchAction: 'none' }}
+                style={{ touchAction: 'pan-y' }}
               >
                 <AnimatePresence mode="popLayout">
                   {columns.map((item, index) => (
-                    <Reorder.Item
+                    <MobileSettingReorderItem
                       key={item.id || `col-${index}`}
-                      value={item}
-                      className="mobile-setting-item glass"
-                      layout
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.98 }}
-                      onDragStart={() => setIsReordering(true)}
-                      onDragEnd={() => setIsReordering(false)}
-                      transition={{
-                        type: 'spring',
-                        stiffness: 500,
-                        damping: 35,
-                        mass: 1,
-                        layout: { duration: 0.2 },
-                      }}
-                      style={{ touchAction: 'none' }}
-                    >
-                      <div
-                        className="drag-handle"
-                        style={{
-                          cursor: 'grab',
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: '0 8px',
-                          color: 'var(--muted)',
-                        }}
-                      >
-                        <DragIcon width="18" height="18" />
-                      </div>
-                      <div style={{ flex: 1, fontSize: '14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span>{item.header}</span>
-                        {item.id === 'totalChangePercent' && (
-                          <span className="muted" style={{ fontSize: '12px' }}>
-                            估值涨幅与持有收益的汇总
-                          </span>
-                        )}
-                        {item.id === 'relatedSector' && (
-                          <span className="muted" style={{ fontSize: '12px' }}>
-                            需登录账号
-                          </span>
-                        )}
-                      </div>
-                      {onToggleColumnVisibility && (
-                        <Switch
-                          checked={columnVisibility?.[item.id] !== false}
-                          onCheckedChange={(checked) => {
-                            onToggleColumnVisibility(item.id, !!checked);
-                          }}
-                          title={columnVisibility?.[item.id] === false ? '显示' : '隐藏'}
-                        />
-                      )}
-                    </Reorder.Item>
+                      item={item}
+                      index={index}
+                      columnVisibility={columnVisibility}
+                      onToggleColumnVisibility={onToggleColumnVisibility}
+                      setIsReordering={setIsReordering}
+                    />
                   ))}
                 </AnimatePresence>
               </Reorder.Group>

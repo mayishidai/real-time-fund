@@ -2992,7 +2992,7 @@ input[type="number"] {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 0;
+  padding: 0 4px;
   margin: 0;
   list-style: none;
 }

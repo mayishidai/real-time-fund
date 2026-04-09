@@ -16,6 +16,7 @@ import Announcement from "./components/Announcement";
 import EmptyStateCard from "./components/EmptyStateCard";
 import FundCard from "./components/FundCard";
 import GroupSummary from "./components/GroupSummary";
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyMedia } from "@/components/ui/empty"
 import {
   CloseIcon,
   EyeIcon,
@@ -80,6 +81,7 @@ import PcFundTable from './components/PcFundTable';
 import MobileFundTable from './components/MobileFundTable';
 import MobileBottomNav from './components/MobileBottomNav';
 import MineTab from './components/MineTab';
+import SearchFund from './components/SearchFund';
 import MyEarningsCalendarPage from './components/MyEarningsCalendarPage';
 import { useFundFuzzyMatcher } from './hooks/useFundFuzzyMatcher';
 import {
@@ -236,6 +238,8 @@ export default function HomePage() {
   const [containerWidth, setContainerWidth] = useState(1200);
   const [showMarketIndexPc, setShowMarketIndexPc] = useState(true);
   const [showMarketIndexMobile, setShowMarketIndexMobile] = useState(true);
+  const [showGroupFundSearchPc, setShowGroupFundSearchPc] = useState(true);
+  const [showGroupFundSearchMobile, setShowGroupFundSearchMobile] = useState(true);
   const [isGroupSummarySticky, setIsGroupSummarySticky] = useState(false);
 
   useEffect(() => {
@@ -251,6 +255,8 @@ export default function HomePage() {
       }
       if (typeof parsed?.showMarketIndexPc === 'boolean') setShowMarketIndexPc(parsed.showMarketIndexPc);
       if (typeof parsed?.showMarketIndexMobile === 'boolean') setShowMarketIndexMobile(parsed.showMarketIndexMobile);
+      if (typeof parsed?.showGroupFundSearchPc === 'boolean') setShowGroupFundSearchPc(parsed.showGroupFundSearchPc);
+      if (typeof parsed?.showGroupFundSearchMobile === 'boolean') setShowGroupFundSearchMobile(parsed.showGroupFundSearchMobile);
     } catch { }
   }, []);
 
@@ -470,6 +476,9 @@ export default function HomePage() {
   const [addResultOpen, setAddResultOpen] = useState(false);
   const [addFailures, setAddFailures] = useState([]);
 
+  // 分组内基金列表搜索（点击按钮后才应用）
+  const [groupFundSearchTerm, setGroupFundSearchTerm] = useState('');
+
   // 动态计算 Navbar 和 FilterBar 高度
   const navbarRef = useRef(null);
   const filterBarRef = useRef(null);
@@ -561,9 +570,10 @@ export default function HomePage() {
   const [isTradingDay, setIsTradingDay] = useState(true); // 默认为交易日，通过接口校正
   const tabsRef = useRef(null);
   const [fundDeleteConfirm, setFundDeleteConfirm] = useState(null); // { code, name }
-  const [fundDeleteBulkConfirm, setFundDeleteBulkConfirm] = useState(null); // { codes: string[], groupId: string, count: number }
+  const [fundDeleteBulkConfirm, setFundDeleteBulkConfirm] = useState(null); // { codes: string[], count: number, groupId?: string, scope?: 'group' | 'global' }
   const fundDetailDrawerCloseRef = useRef(null); // 由 MobileFundTable 注入，用于确认删除时关闭基金详情 Drawer
   const fundDetailDialogCloseRef = useRef(null); // 由 PcFundTable 注入，用于确认删除时关闭基金详情 Dialog
+  const pcBatchClearSelectionRef = useRef(null); // 由 PcFundTable 注入，批量删除二次确认成功后清空表格多选
 
   const todayStr = formatDate();
 
@@ -602,6 +612,7 @@ export default function HomePage() {
   }, []);
 
   const shouldShowMarketIndex = isMobile ? showMarketIndexMobile : showMarketIndexPc;
+  const shouldShowGroupFundSearch = isMobile ? showGroupFundSearchMobile : showGroupFundSearchPc;
 
   // 当关闭大盘指数时，重置它的高度，避免 top/stickyTop 仍沿用旧值
   useEffect(() => {
@@ -877,15 +888,30 @@ export default function HomePage() {
     return out;
   }, [transactions, activeGroupId]);
 
-  // 过滤和排序后的基金列表
+  // 当前 tab 作用域下的基金（不包含“列表搜索”过滤）
+  const scopedFunds = useMemo(() => {
+    return funds.filter((f) => {
+      if (currentTab === 'all') return true;
+      if (currentTab === 'fav') return favorites.has(f.code);
+      const group = groups.find((g) => g.id === currentTab);
+      return group ? group.codes.includes(f.code) : true;
+    });
+  }, [funds, currentTab, favorites, groups]);
+
+  // 过滤和排序后的基金列表（包含“列表搜索”过滤）
   const displayFunds = useMemo(
     () => {
-      let filtered = funds.filter(f => {
-        if (currentTab === 'all') return true;
-        if (currentTab === 'fav') return favorites.has(f.code);
-        const group = groups.find(g => g.id === currentTab);
-        return group ? group.codes.includes(f.code) : true;
-      });
+      let filtered = [...scopedFunds];
+
+      const q = (shouldShowGroupFundSearch ? (groupFundSearchTerm || '') : '').trim();
+      if (q) {
+        const qLower = q.toLowerCase();
+        filtered = filtered.filter((f) => {
+          const name = String(f?.name ?? '').toLowerCase();
+          const code = String(f?.code ?? '').toLowerCase();
+          return name.includes(qLower) || code.includes(qLower);
+        });
+      }
 
       if (currentTab !== 'all' && currentTab !== 'fav' && sortBy === 'default') {
         const group = groups.find(g => g.id === currentTab);
@@ -979,7 +1005,7 @@ export default function HomePage() {
         return 0;
       });
     },
-    [funds, currentTab, favorites, groups, sortBy, sortOrder, holdingsForTab, getHoldingProfit],
+    [scopedFunds, currentTab, groups, sortBy, sortOrder, holdingsForTab, getHoldingProfit, groupFundSearchTerm, shouldShowGroupFundSearch],
   );
 
   // PC 端表格数据（用于 PcFundTable）
@@ -1416,6 +1442,82 @@ export default function HomePage() {
       return nextState;
     });
     showToast('交易记录已删除', 'success');
+  };
+
+  const handleMergeAllGroupTransactionsToCurrent = (fundCode) => {
+    const targetGid = activeGroupId;
+    if (!fundCode || !targetGid) return;
+
+    // 复制“历史交易记录”到当前分组（不改变原记录）
+    setTransactions((prev) => {
+      const list = prev?.[fundCode] || [];
+      if (!Array.isArray(list) || list.length === 0) return prev;
+
+      const existingCurrent = list.filter((t) => t && t.groupId === targetGid);
+      const copiedKey = new Set(
+        existingCurrent
+          .filter((t) => t?.copiedFromId)
+          .map((t) => `${t.copiedFromId}|${t.copiedFromGroupId ?? ''}`)
+      );
+
+      const toCopy = list.filter((t) => {
+        if (!t) return false;
+        const fromGid = t.groupId ?? null;
+        if (fromGid === targetGid) return false;
+        const key = `${t.id}|${fromGid ?? ''}`;
+        return !copiedKey.has(key);
+      });
+
+      if (toCopy.length === 0) return prev;
+
+      const copied = toCopy.map((t) => ({
+        ...t,
+        id: uuidv4(),
+        groupId: targetGid,
+        copiedFromId: t.id,
+        copiedFromGroupId: t.groupId ?? null,
+      }));
+
+      const nextList = [...list, ...copied].sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
+      const nextState = { ...prev, [fundCode]: nextList };
+      storageHelper.setItem('transactions', JSON.stringify(nextState));
+      return nextState;
+    });
+
+    // 复制“待处理队列”到当前分组（不改变原记录）
+    setPendingTrades((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      const existingCurrent = list.filter((t) => t && t.fundCode === fundCode && t.groupId === targetGid);
+      const copiedKey = new Set(
+        existingCurrent
+          .filter((t) => t?.copiedFromId)
+          .map((t) => `${t.copiedFromId}|${t.copiedFromGroupId ?? ''}`)
+      );
+
+      const toCopy = list.filter((t) => {
+        if (!t || t.fundCode !== fundCode) return false;
+        const fromGid = t.groupId ?? null;
+        if (fromGid === targetGid) return false;
+        const key = `${t.id}|${fromGid ?? ''}`;
+        return !copiedKey.has(key);
+      });
+
+      if (toCopy.length === 0) return prev;
+
+      const copied = toCopy.map((t) => ({
+        ...t,
+        id: uuidv4(),
+        groupId: targetGid,
+        copiedFromId: t.id,
+        copiedFromGroupId: t.groupId ?? null,
+      }));
+
+      const next = [...list, ...copied];
+      storageHelper.setItem('pendingTrades', JSON.stringify(next));
+      return next;
+    });
+
+    showToast('已从全部分组复制该基金交易记录到当前分组', 'success');
   };
 
   const handleAddHistory = (data) => {
@@ -3650,34 +3752,59 @@ export default function HomePage() {
     }
   };
 
+  /** @returns {boolean|void} false 表示已弹出二次确认，由确认成功回调再清空选中；true 表示已立即执行，调用方可清空多选 */
   const requestRemoveFundsFromCurrentGroup = (codes) => {
     const gid =
       currentTab !== 'all' && currentTab !== 'fav' && groups.some((g) => g.id === currentTab)
         ? currentTab
         : null;
     const list = Array.from(new Set((codes || []).filter(Boolean)));
-    if (!gid || list.length === 0) return;
+    if (list.length === 0) return true;
 
-    const scoped = migrateDcaPlansToScoped(dcaPlans);
-    const needsConfirm = list.some((code) => {
-      const gh = groupHoldings[gid]?.[code];
-      const hasGroupHolding = gh && isNumber(gh.share) && gh.share > 0;
-      const hasGroupPending = pendingTrades.some((t) => t.fundCode === code && t.groupId === gid);
-      const hasGroupDca = !!(scoped[gid]?.[code]);
-      const txList = transactions[code] || [];
-      const hasGroupTx = txList.some((t) => t.groupId === gid);
-      return hasGroupHolding || hasGroupPending || hasGroupDca || hasGroupTx;
+    if (gid) {
+      const scoped = migrateDcaPlansToScoped(dcaPlans);
+      const needsConfirm = list.some((code) => {
+        const gh = groupHoldings[gid]?.[code];
+        const hasGroupHolding = gh && isNumber(gh.share) && gh.share > 0;
+        const hasGroupPending = pendingTrades.some((t) => t.fundCode === code && t.groupId === gid);
+        const hasGroupDca = !!(scoped[gid]?.[code]);
+        const txList = transactions[code] || [];
+        const hasGroupTx = txList.some((t) => t.groupId === gid);
+        return hasGroupHolding || hasGroupPending || hasGroupDca || hasGroupTx;
+      });
+
+      if (needsConfirm) {
+        setFundDeleteBulkConfirm({ codes: list, groupId: gid, count: list.length, scope: 'group' });
+        return false;
+      }
+
+      fundDetailDrawerCloseRef.current?.();
+      fundDetailDialogCloseRef.current?.();
+      stripManyFundsFromGroupScope(list, gid);
+      showToast(`已从当前分组移除 ${list.length} 支基金`, 'success');
+      return true;
+    }
+
+    // 全部 / 自选：与单条删除、移动端批量删除作用域一致
+    const needsGlobalConfirm = list.some((code) => {
+      const h = holdings[code];
+      const hasGlobalHolding = h && isNumber(h.share) && h.share > 0;
+      const hasGroupHolding = Object.values(groupHoldings || {}).some(
+        (b) => b && b[code] && isNumber(b[code].share) && b[code].share > 0
+      );
+      return hasGlobalHolding || hasGroupHolding;
     });
 
-    if (needsConfirm) {
-      setFundDeleteBulkConfirm({ codes: list, groupId: gid, count: list.length });
-      return;
+    if (needsGlobalConfirm) {
+      setFundDeleteBulkConfirm({ codes: list, count: list.length, scope: 'global' });
+      return false;
     }
 
     fundDetailDrawerCloseRef.current?.();
     fundDetailDialogCloseRef.current?.();
-    stripManyFundsFromGroupScope(list, gid);
-    showToast(`已从当前分组移除 ${list.length} 支基金`, 'success');
+    removeFundsBulk(list);
+    showToast(`已删除 ${list.length} 支基金`, 'success');
+    return true;
   };
 
   const addFund = async (e) => {
@@ -4078,7 +4205,7 @@ export default function HomePage() {
     await refreshAll(codes);
   };
 
-  const saveSettings = (e, secondsOverride, showMarketIndexOverride, isMobileOverride) => {
+  const saveSettings = (e, secondsOverride, showMarketIndexOverride, showGroupFundSearchOverride, isMobileOverride) => {
     e?.preventDefault?.();
     const seconds = secondsOverride ?? tempSeconds;
     const ms = Math.max(30, Number(seconds)) * 1000;
@@ -4093,6 +4220,15 @@ export default function HomePage() {
     const targetIsMobile = Boolean(isMobileOverride);
     if (targetIsMobile) setShowMarketIndexMobile(nextShowMarketIndex);
     else setShowMarketIndexPc(nextShowMarketIndex);
+
+    const nextShowGroupFundSearch = typeof showGroupFundSearchOverride === 'boolean'
+      ? showGroupFundSearchOverride
+      : targetIsMobile
+        ? showGroupFundSearchMobile
+        : showGroupFundSearchPc;
+    if (targetIsMobile) setShowGroupFundSearchMobile(nextShowGroupFundSearch);
+    else setShowGroupFundSearchPc(nextShowGroupFundSearch);
+
     storageHelper.setItem('refreshMs', String(ms));
     const w = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
     setContainerWidth(w);
@@ -4105,12 +4241,14 @@ export default function HomePage() {
           ...parsed,
           pcContainerWidth: w,
           showMarketIndexMobile: nextShowMarketIndex,
+          showGroupFundSearchMobile: nextShowGroupFundSearch,
         }));
       } else {
         window.localStorage.setItem('customSettings', JSON.stringify({
           ...parsed,
           pcContainerWidth: w,
           showMarketIndexPc: nextShowMarketIndex,
+          showGroupFundSearchPc: nextShowGroupFundSearch,
         }));
       }
       triggerCustomSettingsSync();
@@ -5856,7 +5994,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {displayFunds.length === 0 ? (
+          {scopedFunds.length === 0 ? (
             <EmptyStateCard
               fundsLength={funds.length}
               currentTab={currentTab}
@@ -5877,17 +6015,38 @@ export default function HomePage() {
                   marketIndexAccordionHeight={marketIndexAccordionHeight}
                   navbarHeight={navbarHeight}
                 />
+              {shouldShowGroupFundSearch && (
+                <SearchFund
+                  value={groupFundSearchTerm}
+                  onSearch={(next) => setGroupFundSearchTerm(next)}
+                />
+              )}
 
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={viewMode}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className={viewMode === 'card' ? 'grid' : 'table-container glass'}
-                  style={{ marginTop: isGroupSummarySticky ? 50 : 0 }}
-                >
+              {displayFunds.length === 0 ? (
+                <div className="glass" style={{ marginTop: 10 }}>
+                  <Empty className="border-border/60">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <span className="text-3xl" aria-hidden="true">📂</span>
+                      </EmptyMedia>
+                      <EmptyTitle>未找到相关基金</EmptyTitle>
+                      <EmptyDescription>
+                        试试搜索基金名称的部分关键词，或直接输入 6 位基金代码。
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                </div>
+              ) : (
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={viewMode}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.2 }}
+                    className={viewMode === 'card' ? 'grid' : 'table-container glass'}
+                    style={{ marginTop: isGroupSummarySticky ? 50 : 0 }}
+                  >
                   <div className={viewMode === 'card' ? 'grid col-12' : ''} style={viewMode === 'card' ? { gridColumn: 'span 12', gap: 16 } : {}}>
                     {/* PC 列表：使用 PcFundTable + 右侧冻结操作列 */}
                     {viewMode === 'list' && !isMobile && (
@@ -5909,6 +6068,7 @@ export default function HomePage() {
                                   requestRemoveFund({ code: row.code, name: row.fundName });
                                 }}
                                 onRemoveFunds={(codes) => requestRemoveFundsFromCurrentGroup(codes)}
+                                batchSelectionClearRef={pcBatchClearSelectionRef}
                                 onToggleFavorite={(row) => {
                                   if (!row || !row.code) return;
                                   toggleFavorite(row.code);
@@ -6120,6 +6280,7 @@ export default function HomePage() {
                   </div>
                 </motion.div>
               </AnimatePresence>
+              )}
 
               {currentTab !== 'all' && currentTab !== 'fav' && (
                 <motion.button
@@ -6193,13 +6354,23 @@ export default function HomePage() {
         {fundDeleteBulkConfirm && (
           <ConfirmModal
             title="批量删除确认"
-            message={`确定从当前分组中移除已选的 ${fundDeleteBulkConfirm.count} 支基金吗？将清除这些基金在该分组内的持仓、待定交易、定投计划与分组内交易记录；不会在「全部」中删除这些基金。`}
+            message={
+              fundDeleteBulkConfirm.scope === 'global'
+                ? `确定删除已选的 ${fundDeleteBulkConfirm.count} 支基金吗？将从列表中移除这些基金及其全部持仓与相关数据。`
+                : `确定从当前分组中移除已选的 ${fundDeleteBulkConfirm.count} 支基金吗？将清除这些基金在该分组内的持仓、待定交易、定投计划与分组内交易记录；不会在「全部」中删除这些基金。`
+            }
             confirmText="确定删除"
             onConfirm={() => {
               fundDetailDrawerCloseRef.current?.();
               fundDetailDialogCloseRef.current?.();
-              stripManyFundsFromGroupScope(fundDeleteBulkConfirm.codes, fundDeleteBulkConfirm.groupId);
-              showToast(`已从当前分组移除 ${fundDeleteBulkConfirm.count} 支基金`, 'success');
+              if (fundDeleteBulkConfirm.scope === 'global') {
+                removeFundsBulk(fundDeleteBulkConfirm.codes);
+                showToast(`已删除 ${fundDeleteBulkConfirm.count} 支基金`, 'success');
+              } else {
+                stripManyFundsFromGroupScope(fundDeleteBulkConfirm.codes, fundDeleteBulkConfirm.groupId);
+                showToast(`已从当前分组移除 ${fundDeleteBulkConfirm.count} 支基金`, 'success');
+              }
+              pcBatchClearSelectionRef.current?.();
               setFundDeleteBulkConfirm(null);
             }}
             onCancel={() => setFundDeleteBulkConfirm(null)}
@@ -6300,7 +6471,7 @@ export default function HomePage() {
           onSponsorSupport={() => setDonateOpen(true)}
         />
       )}
-      {isMobile && !isAnyModalOpen && (
+      {isMobile && (
         <MobileBottomNav value={mobileMainTab} onChange={setMobileMainTab} hidden={mobileBottomNavHidden && mobileMainTab === 'home'} />
       )}
 
@@ -6449,6 +6620,8 @@ export default function HomePage() {
             onClose={() => setHistoryModal({ open: false, fund: null })}
             onDeleteTransaction={(id) => handleDeleteTransaction(historyModal.fund?.code, id)}
             onAddHistory={() => setAddHistoryModal({ open: true, fund: historyModal.fund })}
+            canMergeAllGroups={!!activeGroupId}
+            onMergeAllGroups={() => handleMergeAllGroupTransactionsToCurrent(historyModal.fund?.code)}
             onDeletePending={(id) => {
                 setPendingTrades(prev => {
                     const next = prev.filter(t => t.id !== id);
@@ -6592,6 +6765,8 @@ export default function HomePage() {
           onResetContainerWidth={handleResetContainerWidth}
           showMarketIndexPc={showMarketIndexPc}
           showMarketIndexMobile={showMarketIndexMobile}
+          showGroupFundSearchPc={showGroupFundSearchPc}
+          showGroupFundSearchMobile={showGroupFundSearchMobile}
         />
       )}
 

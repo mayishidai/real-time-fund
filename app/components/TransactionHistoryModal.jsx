@@ -19,8 +19,11 @@ export default function TransactionHistoryModal({
   onDeleteTransaction,
   onDeletePending,
   onAddHistory,
+  onMergeAllGroups,
+  canMergeAllGroups = false,
 }) {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { type: 'pending' | 'history', item }
+  const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
 
   // Combine and sort logic if needed, but requirements say "sorted by transaction time".
   // Pending transactions are usually "future" or "processing", so they go on top.
@@ -79,6 +82,23 @@ export default function TransactionHistoryModal({
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: '20px' }}>📜</span>
             <span>交易记录</span>
+            {canMergeAllGroups && (
+              <button
+                type="button"
+                onClick={() => setMergeConfirmOpen(true)}
+                className="button secondary"
+                style={{
+                  height: 28,
+                  padding: '0 10px',
+                  borderRadius: 999,
+                  fontSize: 12,
+                  background: 'rgba(255,255,255,0.06)',
+                  color: 'var(--primary)',
+                }}
+              >
+                从全部分组合并
+              </button>
+            )}
           </div>
           <button
             className="icon-button"
@@ -210,6 +230,22 @@ export default function TransactionHistoryModal({
               onConfirm={handleConfirmDelete}
               onCancel={() => setDeleteConfirm(null)}
               confirmText="确认删除"
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {mergeConfirmOpen && (
+            <ConfirmModal
+              key="merge-all-groups-confirm"
+              title="从全部分组合并"
+              message={'是否确认从全部分组复制合并该基金交易记录至当前分组？\n将同时复制「待处理队列」与「历史记录」，原分组数据不受影响。'}
+              onConfirm={() => {
+                onMergeAllGroups?.();
+                setMergeConfirmOpen(false);
+              }}
+              onCancel={() => setMergeConfirmOpen(false)}
+              confirmText="确定"
             />
           )}
         </AnimatePresence>

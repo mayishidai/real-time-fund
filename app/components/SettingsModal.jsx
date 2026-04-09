@@ -22,12 +22,16 @@ export default function SettingsModal({
   onResetContainerWidth,
   showMarketIndexPc = true,
   showMarketIndexMobile = true,
+  showGroupFundSearchPc = true,
+  showGroupFundSearchMobile = true,
 }) {
   const [sliderDragging, setSliderDragging] = useState(false);
   const [resetWidthConfirmOpen, setResetWidthConfirmOpen] = useState(false);
   const [localSeconds, setLocalSeconds] = useState(tempSeconds);
   const [localShowMarketIndexPc, setLocalShowMarketIndexPc] = useState(showMarketIndexPc);
   const [localShowMarketIndexMobile, setLocalShowMarketIndexMobile] = useState(showMarketIndexMobile);
+  const [localShowGroupFundSearchPc, setLocalShowGroupFundSearchPc] = useState(showGroupFundSearchPc);
+  const [localShowGroupFundSearchMobile, setLocalShowGroupFundSearchMobile] = useState(showGroupFundSearchMobile);
   const pageWidthTrackRef = useRef(null);
 
   const clampedWidth = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
@@ -67,6 +71,14 @@ export default function SettingsModal({
   useEffect(() => {
     setLocalShowMarketIndexMobile(showMarketIndexMobile);
   }, [showMarketIndexMobile]);
+
+  useEffect(() => {
+    setLocalShowGroupFundSearchPc(showGroupFundSearchPc);
+  }, [showGroupFundSearchPc]);
+
+  useEffect(() => {
+    setLocalShowGroupFundSearchMobile(showGroupFundSearchMobile);
+  }, [showGroupFundSearchMobile]);
 
   return (
     <Dialog
@@ -192,6 +204,22 @@ export default function SettingsModal({
           </div>
 
           <div className="form-group" style={{ marginBottom: 16 }}>
+            <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>显示分组内基金搜索</div>
+            <div className="row" style={{ justifyContent: 'flex-start', alignItems: 'center' }}>
+              <Switch
+                checked={isMobile ? localShowGroupFundSearchMobile : localShowGroupFundSearchPc}
+                className="ml-2 scale-125"
+                onCheckedChange={(checked) => {
+                  const nextValue = Boolean(checked);
+                  if (isMobile) setLocalShowGroupFundSearchMobile(nextValue);
+                  else setLocalShowGroupFundSearchPc(nextValue);
+                }}
+                aria-label="显示分组内基金搜索"
+              />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 16 }}>
             <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>数据导出</div>
             <div className="row" style={{ gap: 8 }}>
               <button type="button" className="button" onClick={exportLocalData}>导出配置</button>
@@ -221,6 +249,7 @@ export default function SettingsModal({
                 e,
                 localSeconds,
                 isMobile ? localShowMarketIndexMobile : localShowMarketIndexPc,
+                isMobile ? localShowGroupFundSearchMobile : localShowGroupFundSearchPc,
                 isMobile
               )}
               disabled={localSeconds < 30}
