@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Accordion,
   AccordionContent,
@@ -13,37 +13,14 @@ import { SettingsIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import MarketSettingModal from './MarketSettingModal';
 
-/** 简单伪随机，用于稳定迷你图形状 */
-function seeded(seed) {
-  return () => {
-    seed = (seed * 9301 + 49297) % 233280;
-    return seed / 233280;
-  };
-}
-
-/** 迷你走势：优先展示当日分时数据，失败时退回占位折线 */
+/** 迷你走势：只展示当日分时数据，不支持时不展示 */
 function MiniTrendLine({ changePercent, code, className }) {
-  const isDown = changePercent <= 0;
   const width = 80;
   const height = 28;
   const pad = 3;
   const innerH = height - 2 * pad;
   const innerW = width - 2 * pad;
-
-  // 占位伪走势（无真实历史数据）
-  const fallbackPath = useMemo(() => {
-    const points = 12;
-    const rnd = seeded(Math.abs(Math.floor(changePercent * 100)) + 1);
-    const arr = Array.from({ length: points }, (_, i) => {
-      const t = i / (points - 1);
-      const x = pad + t * innerW;
-      const y = isDown
-        ? pad + innerH * (1 - t * 0.6) - (rnd() * 4 - 2)
-        : pad + innerH * (0.4 + t * 0.6) + (rnd() * 4 - 2);
-      return [x, Math.max(pad, Math.min(height - pad, y))];
-    });
-    return arr.map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${x} ${y}`).join(' ');
-  }, [changePercent, isDown, innerH, innerW, pad, height]);
+  const isDown = changePercent <= 0;
 
   // 当日分时真实走势 path
   const [realPath, setRealPath] = useState(null);
@@ -147,7 +124,16 @@ function MiniTrendLine({ changePercent, code, className }) {
     };
   }, [code, height, innerH, innerW, pad]);
 
-  const d = realPath || fallbackPath;
+  if (!realPath) {
+    return (
+      <svg
+        width={width}
+        height={height}
+        className={cn('overflow-visible', className)}
+        aria-hidden
+      />
+    );
+  }
   return (
     <svg
       width={width}
@@ -156,7 +142,7 @@ function MiniTrendLine({ changePercent, code, className }) {
       aria-hidden
     >
       <path
-        d={d}
+        d={realPath}
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"

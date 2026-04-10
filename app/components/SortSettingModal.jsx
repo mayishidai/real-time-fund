@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion, Reorder } from "framer-motion";
+import { AnimatePresence, motion, Reorder, useDragControls } from "framer-motion";
 import { createPortal } from "react-dom";
 import {
   Drawer,
@@ -13,6 +13,176 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CloseIcon, DragIcon, ResetIcon, SettingsIcon } from "./Icons";
 import ConfirmModal from "./ConfirmModal";
+
+function SortSettingReorderItem({
+  isMobile,
+  item,
+  editingId,
+  editingAlias,
+  setEditingAlias,
+  startEditAlias,
+  commitAlias,
+  cancelAlias,
+  handleToggle,
+  setIsReordering,
+}) {
+  const dragControls = useDragControls();
+
+  return (
+    <Reorder.Item
+      key={item.id}
+      value={item}
+      className={
+        (isMobile ? "mobile-setting-item" : "pc-table-setting-item") + " glass"
+      }
+      layout
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{
+        type: "spring",
+        stiffness: 500,
+        damping: 35,
+        mass: 1,
+        layout: { duration: 0.2 },
+      }}
+      style={isMobile ? { touchAction: "pan-y" } : undefined}
+      dragListener={false}
+      dragControls={dragControls}
+      onDragStart={() => setIsReordering?.(true)}
+      onDragEnd={() => setIsReordering?.(false)}
+    >
+      <div
+        className="drag-handle"
+        style={{
+          cursor: "grab",
+          display: "flex",
+          alignItems: "center",
+          padding: "0 8px",
+          color: "var(--muted)",
+          touchAction: "none",
+        }}
+        onPointerDown={(e) => {
+          dragControls.start(e);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label="拖拽排序"
+      >
+        <DragIcon width="18" height="18" />
+      </div>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+        }}
+      >
+        {editingId === item.id ? (
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              autoFocus
+              value={editingAlias}
+              onChange={(e) => setEditingAlias(e.target.value)}
+              onBlur={commitAlias}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitAlias();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelAlias();
+                }
+              }}
+              placeholder="输入别名，如涨跌幅"
+              style={{
+                flex: 1,
+                // 使用 >=16px 的字号，避免移动端聚焦时页面放大
+                fontSize: 16,
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "transparent",
+                color: "var(--text)",
+                outline: "none",
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => startEditAlias(item)}
+              style={{
+                padding: 0,
+                margin: 0,
+                border: "none",
+                background: "transparent",
+                textAlign: "left",
+                fontSize: 14,
+                color: "inherit",
+                cursor: "pointer",
+              }}
+              title="点击修改别名"
+            >
+              {item.label}
+            </button>
+            {item.alias && (
+              <span
+                className="muted"
+                style={{
+                  fontSize: 12,
+                  color: "var(--muted-foreground)",
+                }}
+              >
+                {item.alias}
+              </span>
+            )}
+          </>
+        )}
+      </div>
+      {item.id !== "default" && (
+        <button
+          type="button"
+          className={isMobile ? "icon-button" : "icon-button pc-table-column-switch"}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggle(item.id);
+          }}
+          title={item.enabled ? "关闭" : "开启"}
+          style={
+            isMobile
+              ? {
+                  border: "none",
+                  backgroundColor: "transparent",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                }
+              : {
+                  border: "none",
+                  padding: "0 4px",
+                  backgroundColor: "transparent",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                }
+          }
+        >
+          <span className={`dca-toggle-track ${item.enabled ? "enabled" : ""}`}>
+            <span
+              className="dca-toggle-thumb"
+              style={{ left: item.enabled ? 16 : 2 }}
+            />
+          </span>
+        </button>
+      )}
+    </Reorder.Item>
+  );
+}
 
 /**
  * 排序个性化设置弹框
@@ -41,6 +211,7 @@ export default function SortSettingModal({
   const [editingId, setEditingId] = useState(null);
   const [editingAlias, setEditingAlias] = useState("");
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -252,6 +423,8 @@ export default function SortSettingModal({
                 display: "flex",
                 alignItems: "center",
                 marginBottom: 8,
+                marginRight: 4,
+                marginLeft: 4,
               }}
             >
               <div
@@ -284,161 +457,26 @@ export default function SortSettingModal({
           onReorder={handleReorder}
           className={isMobile ? "mobile-setting-list" : "pc-table-setting-list"}
           layoutScroll={isMobile}
-          style={isMobile ? { touchAction: "none" } : undefined}
+          style={isMobile ? { touchAction: "pan-y" } : undefined}
         >
           <AnimatePresence mode="popLayout">
             {localRules
               .filter((item) => item.id !== "default")
               .map((item) => (
-              <Reorder.Item
-                key={item.id}
-                value={item}
-                className={
-                  (isMobile ? "mobile-setting-item" : "pc-table-setting-item") +
-                  " glass"
-                }
-                layout
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{
-                  type: "spring",
-                  stiffness: 500,
-                  damping: 35,
-                  mass: 1,
-                  layout: { duration: 0.2 },
-                }}
-                style={isMobile ? { touchAction: "none" } : undefined}
-              >
-                <div
-                  className="drag-handle"
-                  style={{
-                    cursor: "grab",
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "0 8px",
-                    color: "var(--muted)",
-                  }}
-                >
-                  <DragIcon width="18" height="18" />
-                </div>
-                <div
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
-                  }}
-                >
-                  {editingId === item.id ? (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        autoFocus
-                        value={editingAlias}
-                        onChange={(e) => setEditingAlias(e.target.value)}
-                        onBlur={commitAlias}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitAlias();
-                          } else if (e.key === "Escape") {
-                            e.preventDefault();
-                            cancelAlias();
-                          }
-                        }}
-                        placeholder="输入别名，如涨跌幅"
-                        style={{
-                          flex: 1,
-                          // 使用 >=16px 的字号，避免移动端聚焦时页面放大
-                          fontSize: 16,
-                          padding: "4px 8px",
-                          borderRadius: 6,
-                          border: "1px solid var(--border)",
-                          background: "transparent",
-                          color: "var(--text)",
-                          outline: "none",
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => startEditAlias(item)}
-                        style={{
-                          padding: 0,
-                          margin: 0,
-                          border: "none",
-                          background: "transparent",
-                          textAlign: "left",
-                          fontSize: 14,
-                          color: "inherit",
-                          cursor: "pointer",
-                        }}
-                        title="点击修改别名"
-                      >
-                        {item.label}
-                      </button>
-                      {item.alias && (
-                        <span
-                          className="muted"
-                          style={{
-                            fontSize: 12,
-                            color: "var(--muted-foreground)",
-                          }}
-                        >
-                          {item.alias}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-                {item.id !== "default" && (
-                  <button
-                    type="button"
-                    className={
-                      isMobile ? "icon-button" : "icon-button pc-table-column-switch"
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggle(item.id);
-                    }}
-                    title={item.enabled ? "关闭" : "开启"}
-                    style={
-                      isMobile
-                        ? {
-                            border: "none",
-                            backgroundColor: "transparent",
-                            cursor: "pointer",
-                            flexShrink: 0,
-                            display: "flex",
-                            alignItems: "center",
-                          }
-                        : {
-                            border: "none",
-                            padding: "0 4px",
-                            backgroundColor: "transparent",
-                            cursor: "pointer",
-                            flexShrink: 0,
-                            display: "flex",
-                            alignItems: "center",
-                          }
-                    }
-                  >
-                    <span
-                      className={`dca-toggle-track ${
-                        item.enabled ? "enabled" : ""
-                      }`}
-                    >
-                      <span
-                        className="dca-toggle-thumb"
-                        style={{ left: item.enabled ? 16 : 2 }}
-                      />
-                    </span>
-                  </button>
-                )}
-              </Reorder.Item>
-            ))}
+                <SortSettingReorderItem
+                  key={item.id}
+                  isMobile={isMobile}
+                  item={item}
+                  editingId={editingId}
+                  editingAlias={editingAlias}
+                  setEditingAlias={setEditingAlias}
+                  startEditAlias={startEditAlias}
+                  commitAlias={commitAlias}
+                  cancelAlias={cancelAlias}
+                  handleToggle={handleToggle}
+                  setIsReordering={setIsReordering}
+                />
+              ))}
           </AnimatePresence>
         </Reorder.Group>
         </>
@@ -482,6 +520,7 @@ export default function SortSettingModal({
           if (!v) onClose?.();
         }}
         direction="bottom"
+        handleOnly={isReordering}
       >
         <DrawerContent
           className="glass"

@@ -798,6 +798,19 @@ const MARKET_INDEX_KEYS = [
   { code: 'usDJI', varKey: 'v_usDJI', name: '道琼斯' },
   { code: 'hkHSI', varKey: 'v_hkHSI', name: '恒生指数' },
   { code: 'hkHSTECH', varKey: 'v_hkHSTECH', name: '恒生科技指数' },
+
+  // 行 7：欧洲三大股指
+  { code: 'gzFTSE', varKey: 'v_gzFTSE', name: '富时100' },
+  { code: 'gzFCHI', varKey: 'v_gzFCHI', name: 'CAC40' },
+  { code: 'gzGDAXI', varKey: 'v_gzGDAXI', name: '德国DAX' },
+
+  // 行 8：日本股指
+  { code: 'gzN225', varKey: 'v_gzN225', name: '日经225' },
+  { code: 'gzTPX', varKey: 'v_gzTPX', name: '东证指数' },
+
+  // 行 9：韩国股指
+  { code: 'gzKS11', varKey: 'v_gzKS11', name: '韩国综合' },
+  { code: 'gzKOSDAQ', varKey: 'v_gzKOSDAQ', name: '韩国创业板' },
 ];
 
 function parseIndexRaw(data) {
@@ -817,6 +830,23 @@ function parseIndexRaw(data) {
   };
 }
 
+function parseGlobalIndexRaw(data) {
+  if (!data || typeof data !== 'string') return null;
+  const parts = data.split('~');
+  if (parts.length < 6) return null;
+  const name = parts[1] || '';
+  const price = parseFloat(parts[3], 10);
+  const change = parseFloat(parts[4], 10);
+  const changePercent = parseFloat(parts[5], 10);
+  if (Number.isNaN(price)) return null;
+  return {
+    name,
+    price: Number.isFinite(price) ? price : 0,
+    change: Number.isFinite(change) ? change : 0,
+    changePercent: Number.isFinite(changePercent) ? changePercent : 0,
+  };
+}
+
 export const fetchMarketIndices = async () => {
   if (typeof window === 'undefined' || typeof document === 'undefined') return [];
   return new Promise((resolve, reject) => {
@@ -824,11 +854,12 @@ export const fetchMarketIndices = async () => {
     const codes = MARKET_INDEX_KEYS.map((item) => item.code).join(',');
     script.src = `https://qt.gtimg.cn/q=${codes}&_t=${Date.now()}`;
     script.onload = () => {
-      const list = MARKET_INDEX_KEYS.map(({ name: defaultName, varKey }) => {
+      const list = MARKET_INDEX_KEYS.map(({ name: defaultName, varKey, code }) => {
         const raw = window[varKey];
-        const parsed = parseIndexRaw(raw);
+        const isGlobal = code.startsWith('gz');
+        const parsed = isGlobal ? parseGlobalIndexRaw(raw) : parseIndexRaw(raw);
         if (!parsed) return { name: defaultName, code: '', price: 0, change: 0, changePercent: 0 };
-        return { ...parsed, code: varKey.replace('v_', '') };
+        return { ...parsed, name: defaultName, code: varKey.replace('v_', '') };
       });
       if (document.body.contains(script)) document.body.removeChild(script);
       resolve(list);

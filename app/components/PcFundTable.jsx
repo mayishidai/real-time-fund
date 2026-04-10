@@ -1,9 +1,10 @@
 'use client';
 
 import ReactDOM from 'react-dom';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { throttle } from 'lodash';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import {
   flexRender,
   getCoreRowModel,
@@ -80,7 +81,7 @@ const SortableRowContext = createContext({
   listeners: null,
 });
 
-function SortableRow({ row, children, isTableDragging, disabled }) {
+function SortableRow({ row, children, isTableDragging, disabled, enableAnimation = true }) {
   const {
     attributes,
     listeners,
@@ -104,19 +105,30 @@ function SortableRow({ row, children, isTableDragging, disabled }) {
 
   return (
     <SortableRowContext.Provider value={contextValue}>
-      <motion.div
-        ref={setNodeRef}
-        className="table-row-wrapper"
-        layout={isTableDragging ? undefined : "position"}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
-        style={{ ...style, position: 'relative' }}
-        {...attributes}
-      >
-        {children}
-      </motion.div>
+      {enableAnimation ? (
+        <motion.div
+          ref={setNodeRef}
+          className="table-row-wrapper"
+          layout={isTableDragging ? undefined : "position"}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          style={{ ...style, position: 'relative' }}
+          {...attributes}
+        >
+          {children}
+        </motion.div>
+      ) : (
+        <div
+          ref={setNodeRef}
+          className="table-row-wrapper"
+          style={{ ...style, position: 'relative' }}
+          {...attributes}
+        >
+          {children}
+        </div>
+      )}
     </SortableRowContext.Provider>
   );
 }
@@ -186,10 +198,14 @@ export default function PcFundTable({
   const [activeId, setActiveId] = useState(null);
   const [cardDialogRow, setCardDialogRow] = useState(null);
   const tableContainerRef = useRef(null);
+  /** 窗口虚拟列表锚点：用于 scrollMargin（.table-scroll-area 仅横向滚动，纵向为整页滚动） */
+  const virtualScrollAnchorRef = useRef(null);
+  const [virtualScrollMargin, setVirtualScrollMargin] = useState(0);
   const portalHeaderRef = useRef(null);
   const [showPortalHeader, setShowPortalHeader] = useState(false);
   const [effectiveStickyTop, setEffectiveStickyTop] = useState(stickyTop);
   const [portalHorizontal, setPortalHorizontal] = useState({ left: 0, right: 0 });
+  const enableRowAnimation = data.length <= 40;
 
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
@@ -532,6 +548,11 @@ export default function PcFundTable({
   const [sectorQuoteByLabel, setSectorQuoteByLabel] = useState({});
 
   const sectorAuthSegment = relatedSectorSessionKey || 'anon';
+  const dataCodes = useMemo(
+    () => Array.from(new Set((data || []).map((d) => d?.code).filter(Boolean))),
+    [data],
+  );
+  const dataCodesKey = useMemo(() => dataCodes.join('|'), [dataCodes]);
 
   const fetchRelatedSector = useCallback(
     (code) => fetchRelatedSectors(code, { authSegment: sectorAuthSegment }),
@@ -561,36 +582,42 @@ export default function PcFundTable({
 
   useEffect(() => {
     if (!relatedSectorEnabled) return;
-    if (!Array.isArray(data) || data.length === 0) return;
+    if (dataCodes.length === 0) return;
 
-    const codes = Array.from(new Set(data.map((d) => d?.code).filter(Boolean)));
-    const missing = codes.filter((code) => !relatedSectorCacheRef.current.has(code));
+    const missing = dataCodes.filter((code) => !relatedSectorCacheRef.current.has(code));
     if (missing.length === 0) return;
 
     let cancelled = false;
     (async () => {
+      const batch = {};
       await runWithConcurrency(missing, 4, async (code) => {
         const value = await fetchRelatedSector(code);
         relatedSectorCacheRef.current.set(code, value);
-        if (cancelled) return;
-        setRelatedSectorByCode((prev) => {
-          if (prev[code] === value) return prev;
-          return { ...prev, [code]: value };
-        });
+        batch[code] = value;
+      });
+      if (cancelled) return;
+      setRelatedSectorByCode((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [code, value] of Object.entries(batch)) {
+          if (next[code] === value) continue;
+          next[code] = value;
+          changed = true;
+        }
+        return changed ? next : prev;
       });
     })();
 
     return () => { cancelled = true; };
-  }, [relatedSectorEnabled, data, sectorAuthSegment, fetchRelatedSector]);
+  }, [relatedSectorEnabled, dataCodesKey, sectorAuthSegment, fetchRelatedSector, dataCodes]);
 
   useEffect(() => {
     if (!relatedSectorEnabled) return;
-    if (!Array.isArray(data) || data.length === 0) return;
+    if (dataCodes.length === 0) return;
 
     const labels = new Set();
-    for (const row of data) {
-      const code = row?.code;
-      const lbl = code && relatedSectorByCode[code];
+    for (const code of dataCodes) {
+      const lbl = relatedSectorByCode?.[code] ?? relatedSectorCacheRef.current.get(code);
       const t = lbl != null ? String(lbl).trim() : '';
       if (t) labels.add(t);
     }
@@ -598,12 +625,18 @@ export default function PcFundTable({
 
     let cancelled = false;
     (async () => {
+      const batch = {};
       await runWithConcurrency([...labels], 4, async (label) => {
         const quote = await fetchRelatedSectorLiveQuote(label);
-        if (cancelled) return;
-        setSectorQuoteByLabel((prev) => {
-          const prevQ = prev[label];
-          if (prevQ === quote) return prev;
+        batch[label] = quote;
+      });
+      if (cancelled) return;
+      setSectorQuoteByLabel((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [label, quote] of Object.entries(batch)) {
+          const prevQ = next[label];
+          if (prevQ === quote) continue;
           if (
             prevQ &&
             quote &&
@@ -611,15 +644,17 @@ export default function PcFundTable({
             prevQ.name === quote.name &&
             prevQ.code === quote.code
           ) {
-            return prev;
+            continue;
           }
-          return { ...prev, [label]: quote };
-        });
+          next[label] = quote;
+          changed = true;
+        }
+        return changed ? next : prev;
       });
     })();
 
     return () => { cancelled = true; };
-  }, [relatedSectorEnabled, data, relatedSectorByCode]);
+  }, [relatedSectorEnabled, dataCodesKey, relatedSectorByCode, dataCodes]);
 
   const withRelatedSectorFund = useCallback(
     (row) => {
@@ -663,20 +698,25 @@ export default function PcFundTable({
 
   useEffect(() => {
     if (!periodReturnsEnabled) return;
-    if (!Array.isArray(data) || data.length === 0) return;
+    if (dataCodes.length === 0) return;
 
-    const codes = Array.from(new Set(data.map((d) => d?.code).filter(Boolean)));
-    const missing = codes.filter((code) => !periodReturnsCacheRef.current.has(code));
+    const missing = dataCodes.filter((code) => !periodReturnsCacheRef.current.has(code));
     if (missing.length === 0) return;
 
     let cancelled = false;
     (async () => {
+      const batch = {};
       await runWithConcurrency(missing, 4, async (code) => {
         const value = await fetchFundPeriodReturns(code);
         periodReturnsCacheRef.current.set(code, value);
-        if (cancelled) return;
-        setPeriodReturnsByCode((prev) => {
-          const prevVal = prev[code];
+        batch[code] = value;
+      });
+      if (cancelled) return;
+      setPeriodReturnsByCode((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [code, value] of Object.entries(batch)) {
+          const prevVal = next[code];
           if (
             prevVal
             && prevVal.week === value.week
@@ -685,15 +725,17 @@ export default function PcFundTable({
             && prevVal.month6 === value.month6
             && prevVal.year1 === value.year1
           ) {
-            return prev;
+            continue;
           }
-          return { ...prev, [code]: value };
-        });
+          next[code] = value;
+          changed = true;
+        }
+        return changed ? next : prev;
       });
     })();
 
     return () => { cancelled = true; };
-  }, [periodReturnsEnabled, data]);
+  }, [periodReturnsEnabled, dataCodesKey, dataCodes]);
 
   useEffect(() => {
     const tableEl = tableContainerRef.current;
@@ -730,6 +772,7 @@ export default function PcFundTable({
     const hasDca = original.hasDca;
     const isFavorites = favorites?.has?.(code);
     const rowContext = useContext(SortableRowContext);
+    const showFavoriteButton = !isGroupTab && (currentTab === 'all' || currentTab === 'fav' || !currentTab);
 
     return (
       <div className="name-cell-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }}>
@@ -774,7 +817,7 @@ export default function PcFundTable({
             <DragIcon width="16" height="16" />
           </button>
         )}
-        {!isGroupTab && !batchRemoveEnabled ? (
+        {showFavoriteButton ? (
           <button
             className={`icon-button fav-button ${isFavorites ? 'active' : ''}`}
             onClick={(e) => {
@@ -1475,6 +1518,40 @@ export default function PcFundTable({
   });
 
   const headerGroup = table.getHeaderGroups()[0];
+  const tableRows = table.getRowModel().rows;
+  const enableVirtualization = data.length > 40;
+  const rowVirtualizer = useWindowVirtualizer({
+    count: tableRows.length,
+    estimateSize: () => 72,
+    measureElement: (el) => el.getBoundingClientRect().height,
+    overscan: 8,
+    scrollMargin: virtualScrollMargin,
+    enabled: enableVirtualization,
+  });
+
+  useLayoutEffect(() => {
+    if (!enableVirtualization) return;
+    const el = virtualScrollAnchorRef.current;
+    if (!el) return;
+    const update = () => {
+      setVirtualScrollMargin(el.getBoundingClientRect().top + window.scrollY);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    const scrollArea = el.closest?.('.table-scroll-area');
+    if (scrollArea) ro.observe(scrollArea);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [enableVirtualization, tableRows.length, stickyTop]);
+
+  useEffect(() => {
+    if (!enableVirtualization) return;
+    rowVirtualizer.measure();
+  }, [enableVirtualization, tableRows.length, rowVirtualizer]);
 
   const getCommonPinningStyles = (column, isHeader) => {
     const isPinned = column.getIsPinned();
@@ -1642,28 +1719,49 @@ export default function PcFundTable({
         .resizer.disabled::after {
           opacity: 0;
         }
+
+        /* 窗口级纵向虚拟滚动：表体自身不出现纵向滚动条，仅随页面滚动 */
+        .pc-fund-table-body-virtual {
+          overflow-x: visible;
+          overflow-y: visible;
+          width: 100%;
+        }
       `}</style>
         {/* 表头 */}
         {renderTableHeader(false)}
 
         {/* 表体 */}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={handleDragCancel}
-          modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-        >
-          <SortableContext
-            items={data.map((item) => item.code)}
-            strategy={verticalListSortingStrategy}
+        {enableVirtualization ? (
+          <div
+            ref={virtualScrollAnchorRef}
+            className="pc-fund-table-body-virtual"
+            style={{ position: 'relative', width: '100%' }}
           >
-            <AnimatePresence mode="popLayout">
-              {table.getRowModel().rows.map((row, index) => (
-                <SortableRow key={row.original.code || row.id} row={row} isTableDragging={!!activeId} disabled={sortBy !== 'default'}>
+            <div
+              style={{
+                height: rowVirtualizer.getTotalSize(),
+                position: 'relative',
+                width: '100%',
+              }}
+            >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = tableRows[virtualRow.index];
+              if (!row) return null;
+              return (
+                <div
+                  key={row.original.code || row.id}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
+                  }}
+                >
                   <div
-                    className={`table-row table-row-scroll ${index % 2 === 1 ? 'row-even' : ''}`}
+                    className={`table-row table-row-scroll ${virtualRow.index % 2 === 1 ? 'row-even' : ''}`}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const columnId = cell.column.id || cell.column.columnDef?.accessorKey;
@@ -1691,11 +1789,112 @@ export default function PcFundTable({
                       );
                     })}
                   </div>
-                </SortableRow>
-              ))}
-            </AnimatePresence>
-          </SortableContext>
-        </DndContext>
+                </div>
+              );
+            })}
+            </div>
+          </div>
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+          >
+            <SortableContext
+              items={data.map((item) => item.code)}
+              strategy={verticalListSortingStrategy}
+            >
+              {enableRowAnimation ? (
+                <AnimatePresence mode="popLayout">
+                  {tableRows.map((row, index) => (
+                    <SortableRow
+                      key={row.original.code || row.id}
+                      row={row}
+                      isTableDragging={!!activeId}
+                      disabled={sortBy !== 'default'}
+                      enableAnimation={!activeId}
+                    >
+                      <div
+                        className={`table-row table-row-scroll ${index % 2 === 1 ? 'row-even' : ''}`}
+                      >
+                        {row.getVisibleCells().map((cell) => {
+                          const columnId = cell.column.id || cell.column.columnDef?.accessorKey;
+                          const isNameColumn = columnId === 'fundName';
+                          const align = isNameColumn
+                            ? ''
+                            : NON_FROZEN_COLUMN_IDS.includes(columnId)
+                              ? 'text-right'
+                              : 'text-center';
+                          const cellClassName =
+                            (cell.column.columnDef.meta && cell.column.columnDef.meta.cellClassName) || '';
+                          const style = getCommonPinningStyles(cell.column, false);
+                          const isPinned = cell.column.getIsPinned();
+                          return (
+                            <div
+                              key={cell.id}
+                              className={`table-cell ${align} ${cellClassName} ${isPinned ? 'pinned-cell' : ''}`}
+                              style={style}
+                            >
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </SortableRow>
+                  ))}
+                </AnimatePresence>
+              ) : (
+                <>
+                  {tableRows.map((row, index) => (
+                    <SortableRow
+                      key={row.original.code || row.id}
+                      row={row}
+                      isTableDragging={!!activeId}
+                      disabled={sortBy !== 'default'}
+                      enableAnimation={false}
+                    >
+                      <div
+                        className={`table-row table-row-scroll ${index % 2 === 1 ? 'row-even' : ''}`}
+                      >
+                        {row.getVisibleCells().map((cell) => {
+                          const columnId = cell.column.id || cell.column.columnDef?.accessorKey;
+                          const isNameColumn = columnId === 'fundName';
+                          const align = isNameColumn
+                            ? ''
+                            : NON_FROZEN_COLUMN_IDS.includes(columnId)
+                              ? 'text-right'
+                              : 'text-center';
+                          const cellClassName =
+                            (cell.column.columnDef.meta && cell.column.columnDef.meta.cellClassName) || '';
+                          const style = getCommonPinningStyles(cell.column, false);
+                          const isPinned = cell.column.getIsPinned();
+                          return (
+                            <div
+                              key={cell.id}
+                              className={`table-cell ${align} ${cellClassName} ${isPinned ? 'pinned-cell' : ''}`}
+                              style={style}
+                            >
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </SortableRow>
+                  ))}
+                </>
+              )}
+            </SortableContext>
+          </DndContext>
+        )}
 
         {table.getRowModel().rows.length === 0 && (
           <div className="table-row empty-row">
