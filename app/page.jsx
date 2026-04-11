@@ -3789,8 +3789,9 @@ export default function HomePage() {
       (b) => b && b[fund.code] && isNumber(b[fund.code].share) && b[fund.code].share > 0
     );
     const hasHolding = hasGlobalHolding || hasGroupHolding;
-    if (hasHolding) {
-      setFundDeleteConfirm({ code: fund.code, name: fund.name, scope: 'global' });
+    const otherGroups = groups.filter((g) => g.codes.includes(fund.code)).map((g) => g.name);
+    if (hasHolding || otherGroups.length > 0) {
+      setFundDeleteConfirm({ code: fund.code, name: fund.name, scope: 'global', otherGroups });
     } else {
       fundDetailDrawerCloseRef.current?.();
       fundDetailDialogCloseRef.current?.();
@@ -3832,6 +3833,15 @@ export default function HomePage() {
     }
 
     // 全部 / 自选：与单条删除、移动端批量删除作用域一致
+    const fundsWithOtherGroups = [];
+    for (const code of list) {
+      const otherGroupNames = groups
+        .filter((g) => g.codes.includes(code))
+        .map((g) => g.name);
+      if (otherGroupNames.length > 0) {
+        fundsWithOtherGroups.push({ code, otherGroups: otherGroupNames });
+      }
+    }
     const needsGlobalConfirm = list.some((code) => {
       const h = holdings[code];
       const hasGlobalHolding = h && isNumber(h.share) && h.share > 0;
@@ -3841,8 +3851,8 @@ export default function HomePage() {
       return hasGlobalHolding || hasGroupHolding;
     });
 
-    if (needsGlobalConfirm) {
-      setFundDeleteBulkConfirm({ codes: list, count: list.length, scope: 'global' });
+    if (needsGlobalConfirm || fundsWithOtherGroups.length > 0) {
+      setFundDeleteBulkConfirm({ codes: list, count: list.length, scope: 'global', fundsWithOtherGroups });
       return false;
     }
 
@@ -6364,7 +6374,20 @@ export default function HomePage() {
             message={
               fundDeleteConfirm.scope === 'group'
                 ? `确定从当前分组中移除「${fundDeleteConfirm.name}」吗？将清除该分组内的持仓、待定交易、定投计划与分组内交易记录；不会在「全部」中删除该基金。`
-                : `基金 "${fundDeleteConfirm.name}" 存在持仓记录。删除后将从列表中移除该基金及其全部持仓与相关数据（含各分组内副本），是否继续？`
+                : null
+            }
+            messageContent={
+              fundDeleteConfirm.scope === 'group'
+                ? null
+                : (fundDeleteConfirm.otherGroups && fundDeleteConfirm.otherGroups.length > 0
+                  ? <>
+                      基金 &#34{fundDeleteConfirm.name}&#34; 还存在于以下分组：
+                      <span className="text-[var(--primary)] font-semibold">
+                        {fundDeleteConfirm.otherGroups.join('、')}
+                      </span>
+                      。删除后将同时从这些分组中移除。确定要彻底删除吗？
+                    </>
+                  : `基金 "${fundDeleteConfirm.name}" 存在持仓记录。删除后将从列表中移除该基金及其全部持仓与相关数据（含各分组内副本），是否继续？`)
             }
             confirmText="确定删除"
             onConfirm={() => {
@@ -6388,8 +6411,29 @@ export default function HomePage() {
             title="批量删除确认"
             message={
               fundDeleteBulkConfirm.scope === 'global'
-                ? `确定删除已选的 ${fundDeleteBulkConfirm.count} 支基金吗？将从列表中移除这些基金及其全部持仓与相关数据。`
+                ? (fundDeleteBulkConfirm.fundsWithOtherGroups && fundDeleteBulkConfirm.fundsWithOtherGroups.length > 0
+                  ? null
+                  : `确定删除已选的 ${fundDeleteBulkConfirm.count} 支基金吗？将从列表中移除这些基金及其全部持仓与相关数据。`)
                 : `确定从当前分组中移除已选的 ${fundDeleteBulkConfirm.count} 支基金吗？将清除这些基金在该分组内的持仓、待定交易、定投计划与分组内交易记录；不会在「全部」中删除这些基金。`
+            }
+            messageContent={
+              fundDeleteBulkConfirm.scope === 'global' && fundDeleteBulkConfirm.fundsWithOtherGroups && fundDeleteBulkConfirm.fundsWithOtherGroups.length > 0
+                ? <>
+                    以下基金还存在于其他分组：
+                    <br />
+                    {fundDeleteBulkConfirm.fundsWithOtherGroups.map((f, i) => (
+                      <span key={f.code}>
+                        <span className="text-[var(--primary)] font-semibold">{f.code}</span>
+                        {'（'}
+                        <span className="text-[var(--primary)] font-semibold">{f.otherGroups.join('、')}</span>
+                        {'）'}
+                        {i < fundDeleteBulkConfirm.fundsWithOtherGroups.length - 1 ? '、' : ''}
+                      </span>
+                    ))}
+                    <br />
+                    删除后将同时从这些分组中移除。确定要彻底删除已选的 {fundDeleteBulkConfirm.count} 支基金吗？
+                  </>
+                : null
             }
             confirmText="确定删除"
             onConfirm={() => {

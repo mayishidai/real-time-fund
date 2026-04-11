@@ -12,11 +12,12 @@ import { TrashIcon } from './Icons';
 export default function ConfirmModal({
   title,
   message,
+  messageContent,
   onConfirm,
   onCancel,
   confirmText = '确定删除',
   icon,
-  confirmVariant = 'danger', // 'danger' | 'primary' | 'secondary'
+  confirmVariant = 'danger',
 }) {
   const handleOpenChange = (open) => {
     if (!open) onCancel();
@@ -43,7 +44,7 @@ export default function ConfirmModal({
           <DialogTitle className="flex-1 text-base font-semibold">{title}</DialogTitle>
         </DialogHeader>
         <DialogDescription className="text-left text-sm leading-relaxed text-[var(--muted-foreground)]">
-          {message}
+          {messageContent || message}
         </DialogDescription>
         <div className="flex flex-col gap-3 sm:flex-row">
           <button
